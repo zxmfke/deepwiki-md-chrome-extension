@@ -22,7 +22,7 @@
 
 ## 使用方法
 
-![](./images\UI.png)
+![](./images/UI.png)
 
 1. 单页转换：
    - 打开任意 DeepWiki 页面，例如：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
