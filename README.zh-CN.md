@@ -4,7 +4,9 @@
 
 ## 目的
 
-想要保存deepwiki网站的github 仓库代码文档，这样可以在本地修改，然后改写成自己的博客，甚至加入一些自己的见解。例如打开 [ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp )，如下：
+想要保存deepwiki网站的github 仓库代码文档，这样可以在本地修改，然后改写成自己的博客，甚至加入一些自己的见解。目前没有发布到谷歌商店，只是作为个人使用的工具。如果想要使用，可以clone下来，或者到release下载下来，打开chrome的开发者模式，选择下载下来的目录加就行了。
+
+例如打开 [ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp )，如下：
 
 ![](./images/deepwiki-github.png)
 

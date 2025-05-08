@@ -5,7 +5,9 @@
 
 ## Purpose
 
-I want to save the code documentation from the GitHub repository of the DeepWiki website, so that I can modify it locally and then rewrite it into my own blog, even adding some of my own insights. For example, open ThinkInAIXYZ/go-mcp. The content is as follows:
+I want to save the code documentation from the GitHub repository of the DeepWiki website, so that I can modify it locally and then rewrite it into my own blog, even adding some of my own insights. It has not been published to the Google Play Store yet and is currently just a tool for personal use. If you want to use it, you can clone it or download it from the release section. Then, enable Chrome's developer mode, select the downloaded directory, and add it.
+
+For example, open ThinkInAIXYZ/go-mcp. The content is as follows:
 
 ![](./images/deepwiki-github.png)
 
