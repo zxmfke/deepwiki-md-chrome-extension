@@ -1,22 +1,35 @@
-# DeepWiki to Markdown Extension
+# DeepWiki Webpage Convert To Markdown Extension
 
 [中文文档](./README.zh-CN.md)
+
+
+## Purpose
+
+I want to save the code documentation from the GitHub repository of the DeepWiki website, so that I can modify it locally and then rewrite it into my own blog, even adding some of my own insights. For example, open ThinkInAIXYZ/go-mcp. The content is as follows:
+
+![](./images/deepwiki-github.png)
+
+The conversion to Markdown format is as follows:
+
+![](./images/deepwiki-markdown.png)
+
 
 ## Features
 
 1. Convert single page content from DeepWiki website to Markdown format
 2. One-click batch conversion and download of all subpages of a document (packaged as a ZIP file)
+3. The UML diagrams in the document will also be saved.
 
 ## How to Use
 
 1. Single Page Conversion:
-   - Open any page on DeepWiki
+   - Open any page on DeepWiki, such as：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
    - Click the extension icon
-   - Click the "Convert & Download Page" button
+   - Click the "Convert & Download Current Page" button
    - The page will be converted and a download dialog will appear
 
 2. Batch Download All Pages:
-   - Open a DeepWiki page that has a sidebar
+   - Open a DeepWiki page, such as：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
    - Click the extension icon
    - Click the "Batch Convert & Download All Pages" button
    - The extension will automatically convert all page content and package them into a ZIP file for download

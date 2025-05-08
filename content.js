@@ -638,10 +638,17 @@ function processNode(node) {
         }
         break;
       }
-      case "A": { // THIS IS THE MODIFIED CASE
+      case "A": {
         const href = element.getAttribute("href");
         let text = "";
-        element.childNodes.forEach(c => { try { text += processNode(c); } catch (e) { console.error("Error processing child of A:", c, e); text += "[err]";}});
+        element.childNodes.forEach(c => { 
+          try { 
+            text += processNode(c); 
+          } catch (e) { 
+            console.error("Error processing child of A:", c, e); 
+            text += "[err]";
+          }
+        });
         text = text.trim();
 
         if (!text && element.querySelector('img')) {
@@ -649,17 +656,16 @@ function processNode(node) {
         }
         text = text || (href ? href : ""); // Fallback to href itself if text is still empty
 
-
         if (href && (href.startsWith('http') || href.startsWith('https') || href.startsWith('/') || href.startsWith('#') || href.startsWith('mailto:'))) {
           
-          // --- START of new transformation logic ---
+          // 处理代码引用链接格式
           const hashMatch = href.match(/#L(\d+)-L(\d+)$/);
-
           if (hashMatch) {
               const hashStartLine = hashMatch[1];
               const hashEndLine = hashMatch[2];
-              const textMatch = text.match(/^(\w[\w.-]*)\s+(\d+)-(\d+)$/);
               
+              // 匹配"file.js 47-64"格式
+              const textMatch = text.match(/^([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)$/);
               if (textMatch) {
                   const textFilename = textMatch[1];
                   const textStartLine = textMatch[2];
@@ -667,13 +673,27 @@ function processNode(node) {
 
                   if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
                       const pathPart = href.substring(0, href.indexOf('#'));
-                      if (pathPart.endsWith('/' + textFilename) || pathPart === textFilename) {
-                           text = `${textFilename} L${hashStartLine}-${hashEndLine}`;
+                      if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
+                          text = `${textFilename} L${hashStartLine}-L${hashEndLine}`;
+                      }
+                  }
+              } else {
+                  // 匹配"Sources: [file.js 47-64]"格式
+                  const sourcesMatch = text.match(/^Sources:\s+\[([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)\]$/);
+                  if (sourcesMatch) {
+                      const textFilename = sourcesMatch[1];
+                      const textStartLine = sourcesMatch[2];
+                      const textEndLine = sourcesMatch[3];
+                      
+                      if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
+                          const pathPart = href.substring(0, href.indexOf('#'));
+                          if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
+                              text = `Sources: [${textFilename} L${hashStartLine}-L${hashEndLine}]`;
+                          }
                       }
                   }
               }
           }
-          // --- END of new transformation logic ---
           
           resultMd = `[${text}](${href})`;
           if (window.getComputedStyle(element).display !== "inline") {
@@ -681,12 +701,12 @@ function processNode(node) {
           }
         } else { 
           resultMd = text; 
-           if (window.getComputedStyle(element).display !== "inline" && text.trim()) {
+          if (window.getComputedStyle(element).display !== "inline" && text.trim()) {
               resultMd += "\n\n";
           }
         }
         break;
-      } // END OF CASE A
+      }
       case "IMG":
         if (element.closest && element.closest('a')) return "";
         resultMd = (element.src ? `![${element.alt || ""}](${element.src})\n\n` : "");
