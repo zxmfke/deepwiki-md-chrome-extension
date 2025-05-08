@@ -1,5 +1,7 @@
 # DeepWiki to Markdown Extension
 
+[中文文档](./README.zh-CN.md)
+
 ## Features
 
 1. Convert single page content from DeepWiki website to Markdown format
@@ -24,4 +26,19 @@
 - During batch conversion, all pages will be visited sequentially, please be patient
 - All files will be packaged into a ZIP file named after the current page title
 - The ZIP file contains a "README.md" file listing links to all documents
+
+## Roadmap
+
+Future planned features include:
+
+- Automatic translation to other languages before conversion
+- Enhanced local storage options
+- Integration with cloud services:
+  - Google Drive
+  - Feishu/Lark Docs
+  - Microsoft OneDrive
+  - Notion
+  - And more...
+
+Feel free to contribute or suggest new features by creating an issue or pull request.
 
