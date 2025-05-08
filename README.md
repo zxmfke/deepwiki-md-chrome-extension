@@ -22,6 +22,8 @@ The conversion to Markdown format is as follows:
 
 ## How to Use
 
+![](./images\UI.png)
+
 1. Single Page Conversion:
    - Open any page on DeepWiki, such as：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
    - Click the extension icon
