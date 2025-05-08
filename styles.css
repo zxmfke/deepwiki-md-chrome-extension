@@ -3,10 +3,35 @@
   padding: 15px;
 }
 
+.title-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
 h2 {
   color: #333;
-  margin-bottom: 15px;
-  text-align: center;
+  margin: 0;
+  margin-right: 10px;
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.github-link {
+  display: flex;
+  align-items: center;
+  height: 24px;
+}
+
+.github-icon {
+  fill: #333;
+  transition: fill 0.3s;
+  vertical-align: middle;
+}
+
+.github-icon:hover {
+  fill: #0366d6;
 }
 
 .button-group {
@@ -30,9 +55,23 @@ button:hover {
   background-color: #45a049;
 }
 
+button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+button.batch {
+  background-color: #2196F3;
+  margin-top: 5px;
+}
+
+button.batch:hover {
+  background-color: #0b7dda;
+}
+
 #status {
-  margin-top: 15px;
-  padding: 10px;
+  margin-top: 8px;
+  padding: 8px;
   border-radius: 4px;
   text-align: center;
 }
@@ -45,4 +84,9 @@ button:hover {
 .error {
   background-color: #f2dede;
   color: #a94442;
+}
+
+.info {
+  background-color: #d9edf7;
+  color: #31708f;
 } 

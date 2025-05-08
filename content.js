@@ -1,8 +1,13 @@
-// 监听来自 popup 的消息
+// Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "convertToMarkdown") {
     try {
-      // 获取文章标题 (保持不变)
+      // Get page title from head
+      const headTitle = document.title || "";
+      // Format head title: replace slashes and pipes with dashes
+      const formattedHeadTitle = headTitle.replace(/[\/|]/g, '-').replace(/\s+/g, '-').replace('---','-');
+
+      // Get article title (keep unchanged)
       const title =
         document
           .querySelector(
@@ -15,7 +20,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         document.querySelector("h1")?.textContent?.trim() ||
         "Untitled";
 
-      // 获取文章内容容器 (保持不变)
+      // Get article content container (keep unchanged)
       const contentContainer =
         document.querySelector(".container > div:nth-child(2) .prose") ||
         document.querySelector(".container > div:nth-child(2) .prose-custom") ||
@@ -29,14 +34,77 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         markdown += processNode(child);
       });
 
-      // 规范化空行
+      // Normalize blank lines
       markdown = markdown.trim().replace(/\n{3,}/g, "\n\n");
-      sendResponse({ success: true, markdown,markdownTitle });
+      sendResponse({ 
+        success: true, 
+        markdown, 
+        markdownTitle,
+        headTitle: formattedHeadTitle
+      });
     } catch (error) {
       console.error("Error converting to Markdown:", error);
       sendResponse({ success: false, error: error.message });
     }
+  } else if (request.action === "extractAllPages") {
+    try {
+      // Get the head title
+      const headTitle = document.title || "";
+      // Format head title: replace slashes and pipes with dashes
+      const formattedHeadTitle = headTitle.replace(/[\/|]/g, '-').replace(/\s+/g, '-').replace('---','-');
+      
+      // Get the base part of the current document path
+      const baseUrl = window.location.origin;
+      
+      // Get all links in the sidebar
+      const sidebarLinks = Array.from(document.querySelectorAll('.border-r-border ul li a'));
+      
+      // Extract link URLs and titles
+      const pages = sidebarLinks.map(link => {
+        return {
+          url: new URL(link.getAttribute('href'), baseUrl).href,
+          title: link.textContent.trim(),
+          selected: link.getAttribute('data-selected') === 'true'
+        };
+      });
+      
+      // Get current page information for return
+      const currentPageTitle =
+        document
+          .querySelector(
+            '.container > div:nth-child(1) a[data-selected="true"]'
+          )
+          ?.textContent?.trim() ||
+        document
+          .querySelector(".container > div:nth-child(1) h1")
+          ?.textContent?.trim() ||
+        document.querySelector("h1")?.textContent?.trim() ||
+        "Untitled";
+        
+      sendResponse({ 
+        success: true, 
+        pages: pages, 
+        currentTitle: currentPageTitle,
+        baseUrl: baseUrl,
+        headTitle: formattedHeadTitle
+      });
+    } catch (error) {
+      console.error("Error extracting page links:", error);
+      sendResponse({ success: false, error: error.message });
+    }
+  } else if (request.action === "pageLoaded") {
+    // Page loading complete, batch operation preparation can be handled here
+    // No sendResponse needed, as this is a notification from background.js
+    console.log("Page loaded:", window.location.href);
+    // Always send a response, even if empty, to avoid connection errors
+    sendResponse({ received: true });
+  } else if (request.action === "tabActivated") {
+    // Tab has been activated, possibly after being in bfcache
+    console.log("Tab activated:", window.location.href);
+    // Acknowledge receipt of message to avoid connection errors
+    sendResponse({ received: true });
   }
+  // Always return true for asynchronous sendResponse handling
   return true;
 });
 // Function for Flowchart (ensure this exists from previous responses)
@@ -441,15 +509,16 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
 
     return '```mermaid\n' + mermaidOutput.trim() + '\n```';
 }
-// 辅助函数：递归处理节点
+// Helper function: recursively process nodes
 function processNode(node) {
   // console.log("processNode START:", node.nodeName, node.nodeType, node.textContent ? node.textContent.substring(0,50) : ''); // DEBUG
   let resultMd = "";
 
   if (node.nodeType === Node.TEXT_NODE) {
     if (node.parentNode && node.parentNode.nodeName === 'PRE') { return node.textContent; }
-    // 修复：对于普通文本节点，避免连续的空白行被转换成单个换行符后，再被外层逻辑加 \n\n 导致过多空行
-    // 简单返回文本，让父级块元素处理末尾的 \n\n
+    // Fix: For normal text nodes, avoid consecutive blank lines being converted to a single newline, 
+    // then having \n\n added by outer logic causing too many empty lines
+    // Simply return the text and let the parent block element handle the trailing \n\n
     return node.textContent;
   }
 
@@ -473,7 +542,7 @@ function processNode(node) {
   }
 
 
-  // 主体逻辑包裹在 try...catch 中，以便捕获特定节点处理的错误
+  // Main logic wrapped in try...catch to catch errors when processing specific nodes
   try {
     switch (element.nodeName) {
       case "P": {
@@ -487,7 +556,7 @@ function processNode(node) {
         } else if (txt) {
           resultMd = txt + "\n\n";
         } else {
-          resultMd = "\n"; // 保留空P标签为一个换行，如果需要的话
+          resultMd = "\n"; // Keep empty P tag as a newline if needed
         }
         break;
       }
@@ -502,7 +571,7 @@ function processNode(node) {
         element.querySelectorAll(":scope > li").forEach((li) => {
           let liTxt = "";
           li.childNodes.forEach((c) => { try { liTxt += processNode(c); } catch (e) { console.error("Error processing child of LI:", c, e); liTxt += "[err]";}});
-          // 移除内部块元素可能产生的尾部多余换行
+          // Remove extra trailing newlines that might be produced by internal block elements
           liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
           if (liTxt) list += `* ${liTxt}\n`;
         });
