@@ -24,7 +24,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://deepwiki.com/*"],
+      "matches": ["https://deepwiki.com/*","https://opendeep.wiki/*"],
       "js": ["content.js"],
       "run_at": "document_end"
     }

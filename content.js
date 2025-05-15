@@ -57,7 +57,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const baseUrl = window.location.origin;
       
       // Get all links in the sidebar
-      const sidebarLinks = Array.from(document.querySelectorAll('.border-r-border ul li a'));
+      let  sidebarLinks = Array.from(document.querySelectorAll('.border-r-border ul li a'));
+	  if (sidebarLinks.length === 0) {
+		  sidebarLinks = Array.from(document.querySelectorAll('.menu-item'));
+		  }
       
       // Extract link URLs and titles
       const pages = sidebarLinks.map(link => {
