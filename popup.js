@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      if (!tab.url.includes('deepwiki.com') && !tab.url.includes('opendeep.wiki')){
+      if (!tab.url.includes('deepwiki.com')) {
         showStatus('Please use this extension on a DeepWiki page', 'error');
         return;
       }
@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      if (!tab.url.includes('deepwiki.com') && !tab.url.includes('opendeep.wiki')) {
+      if (!tab.url.includes('deepwiki.com')) {
         showStatus('Please use this extension on a DeepWiki page', 'error');
         return;
       }
