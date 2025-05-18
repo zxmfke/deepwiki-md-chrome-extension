@@ -642,239 +642,215 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
 function convertSequenceDiagramSvgToMermaidText(svgElement) {
     if (!svgElement) return null;
 
+    // 1. 解析参与者（只用<text.actor-box>，保留原始文本和引号）
     const participants = [];
-    const actorXCoordinates = new Map(); // Map actor name to its lifeline X coordinate
-
-    // Extract participants from actor lines primarily, then fallback to top boxes
-    svgElement.querySelectorAll('line.actor-line').forEach(line => {
-        const name = line.getAttribute('name');
-        const xPos = parseFloat(line.getAttribute('x1'));
-        if (name && !isNaN(xPos) && !actorXCoordinates.has(name)) {
-            participants.push({ name: name, x: xPos, alias: name.replace(/[^a-zA-Z0-9_]/g, '_') });
-            actorXCoordinates.set(name, xPos);
+    svgElement.querySelectorAll('g[id^="root-"] > text.actor-box').forEach((textEl) => {
+        const name = textEl.textContent.trim();
+        const x = parseFloat(textEl.getAttribute('x'));
+        if (name && !isNaN(x)) {
+            participants.push({ name, x });
         }
     });
-    
-    // Fallback if no actor-lines found or to catch any missed ones from top boxes
-    svgElement.querySelectorAll('g[id^="root-"] > text.actor-box').forEach((textEl, index) => {
-        // Try to get name from associated rect first if it's more reliable
-        const parentGroup = textEl.closest('g[id^="root-"]');
-        const rectName = parentGroup?.querySelector('rect.actor-top')?.getAttribute('name');
-        const name = rectName || textEl.textContent.trim();
-        
-        if (name && !actorXCoordinates.has(name)) {
-            // Estimate X from text el if line wasn't found or didn't have this participant
-             // For X, try to find its corresponding line if possible, otherwise use text X
-            let xPos = parseFloat(textEl.getAttribute('x')); // Text X is center
-            const correspondingLine = svgElement.querySelector(`line.actor-line[name="${name}"]`);
-            if(correspondingLine) {
-                xPos = parseFloat(correspondingLine.getAttribute('x1'));
+    participants.sort((a, b) => a.x - b.x);
+    const participantNames = participants.map(p => p.name);
+
+    // 参与者竖线y区间
+    const actorRanges = participants.map(p => {
+        let line = null;
+        svgElement.querySelectorAll('line.actor-line').forEach(l => {
+            const lx = parseFloat(l.getAttribute('x1'));
+            if (Math.abs(lx - p.x) < 2) line = l;
+        });
+        let y1 = 0, y2 = 99999;
+        if (line) {
+            y1 = parseFloat(line.getAttribute('y1'));
+            y2 = parseFloat(line.getAttribute('y2'));
+        }
+        return { name: p.name, x: p.x, y1, y2 };
+    });
+
+    // 2. 解析loop区间
+    let loops = [];
+    let loopRects = [];
+    svgElement.querySelectorAll('.loopLine').forEach(line => {
+        const x1 = parseFloat(line.getAttribute('x1'));
+        const y1 = parseFloat(line.getAttribute('y1'));
+        const x2 = parseFloat(line.getAttribute('x2'));
+        const y2 = parseFloat(line.getAttribute('y2'));
+        if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+            loopRects.push({x1, y1, x2, y2});
+        }
+    });
+    if (loopRects.length === 4) {
+        const xs = loopRects.map(r => [r.x1, r.x2]).flat();
+        const ys = loopRects.map(r => [r.y1, r.y2]).flat();
+        const xMin = Math.min(...xs), xMax = Math.max(...xs);
+        const yMin = Math.min(...ys), yMax = Math.max(...ys);
+        let loopLabel = '';
+        let loopText = '';
+        const labelText = svgElement.querySelector('.labelText');
+        if (labelText) loopLabel = labelText.textContent.trim();
+        const loopTextEl = svgElement.querySelector('.loopText');
+        if (loopTextEl) loopText = loopTextEl.textContent.trim();
+        loops.push({xMin, xMax, yMin, yMax, label: loopLabel, text: loopText});
+    }
+
+    // 3. 解析激活区间
+    const activations = [];
+    svgElement.querySelectorAll('rect[class^="activation"]').forEach(rect => {
+        const x = parseFloat(rect.getAttribute('x'));
+        const y = parseFloat(rect.getAttribute('y'));
+        const width = parseFloat(rect.getAttribute('width'));
+        const height = parseFloat(rect.getAttribute('height'));
+        if (!isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height)) {
+            activations.push({
+                x: x + width/2,
+                yStart: y,
+                yEnd: y + height
+            });
+        }
+    });
+
+    // 4. 按DOM顺序收集所有消息线和文本
+    let messageLines = [];
+    let messageTexts = [];
+    const allNodes = Array.from(svgElement.querySelectorAll('*'));
+    allNodes.forEach(el => {
+        if (el.matches('line[class^="messageLine"], path[class^="messageLine"]')) {
+            // 解析from/to
+            let x1, y1, x2, y2, y;
+            if (el.tagName === 'line') {
+                x1 = parseFloat(el.getAttribute('x1'));
+                y1 = parseFloat(el.getAttribute('y1'));
+                x2 = parseFloat(el.getAttribute('x2'));
+                y2 = parseFloat(el.getAttribute('y2'));
+            } else if (el.tagName === 'path') {
+                const d = el.getAttribute('d');
+                const m = d.match(/M\s*([\d.]+),([\d.]+)[^A-Za-z]+([\d.]+),([\d.]+)/);
+                if (m) {
+                    x1 = parseFloat(m[1]); y1 = parseFloat(m[2]);
+                    x2 = parseFloat(m[3]); y2 = parseFloat(m[4]);
+                } else {
+                    x1 = x2 = y1 = y2 = NaN;
+                }
             }
-            
-            if (!isNaN(xPos)) {
-                 participants.push({ name: name, x: xPos, alias: name.replace(/[^a-zA-Z0-9_]/g, '_') });
-                 actorXCoordinates.set(name, xPos);
+            y = (y1 + y2) / 2;
+            // 找最近的actor
+            let fromActor = null, toActor = null, minFrom = Infinity, minTo = Infinity;
+            participants.forEach(p => {
+                const diff1 = Math.abs(p.x - x1);
+                if (diff1 < minFrom) { minFrom = diff1; fromActor = p.name; }
+                const diff2 = Math.abs(p.x - x2);
+                if (diff2 < minTo) { minTo = diff2; toActor = p.name; }
+            });
+            // 自消息增强判定
+            if ((!fromActor || !toActor)) {
+                // 1. x1/x2最近原则，阈值放宽
+                let minSelf = Infinity, selfActor = null;
+                actorRanges.forEach(a => {
+                    const dist = Math.abs(a.x - x1);
+                    if (dist < minSelf) { minSelf = dist; selfActor = a.name; }
+                });
+                if (minSelf < 50) {
+                    fromActor = toActor = selfActor;
+                } else {
+                    // 2. y区间重叠原则
+                    actorRanges.forEach(a => {
+                        if (y >= a.y1 && y <= a.y2) {
+                            fromActor = toActor = a.name;
+                        }
+                    });
+                }
+            }
+            messageLines.push({from: fromActor, to: toActor, y, arrow: (el.getAttribute('class')||"").includes('messageLine1') ? '-->>' : '->>', lineEl: el});
+        } else if (el.matches('text.messageText')) {
+            messageTexts.push(el.textContent.trim());
+        }
+    });
+
+    // 5. 严格一一配对
+    for (let i = 0; i < messageLines.length; i++) {
+        messageLines[i].text = messageTexts[i] || '';
+    }
+
+    // 5.5 自消息上下文兜底
+    for (let i = 0; i < messageLines.length; i++) {
+        let msg = messageLines[i];
+        if (!msg.from || !msg.to) {
+            // 前一条
+            if (i > 0 && messageLines[i-1].to && messageLines[i-1].to === messageLines[i-1].from) {
+                msg.from = msg.to = messageLines[i-1].to;
+            }
+            // 后一条
+            else if (i < messageLines.length-1 && messageLines[i+1].from && messageLines[i+1].from === messageLines[i+1].to) {
+                msg.from = msg.to = messageLines[i+1].from;
+            }
+            // 还不行，直接用前一条的to或后一条的from
+            else if (i > 0 && messageLines[i-1].to) {
+                msg.from = msg.to = messageLines[i-1].to;
+            } else if (i < messageLines.length-1 && messageLines[i+1].from) {
+                msg.from = msg.to = messageLines[i+1].from;
             }
         }
-    });
-    
-    // Remove duplicate participants just in case, preferring those with valid x
-    const uniqueParticipants = [];
-    const seenNames = new Set();
-    participants.filter(p => p.name && !isNaN(p.x)).forEach(p => {
-        if (!seenNames.has(p.name)) {
-            uniqueParticipants.push(p);
-            seenNames.add(p.name);
-        }
-    });
+    }
 
-    uniqueParticipants.sort((a, b) => a.x - b.x);
+    // 6. 合并所有事件（消息、loop、激活）
+    let events = messageLines.map(m => ({type: 'message', y: m.y, data: m}));
+    loops.forEach(loop => {
+        events.push({type: 'loop_start', y: loop.yMin - 0.1, data: loop});
+        events.push({type: 'loop_end', y: loop.yMax + 0.1, data: loop});
+    });
+    activations.forEach(act => {
+        events.push({type: 'activate', y: act.yStart - 0.05, data: act});
+        events.push({type: 'deactivate', y: act.yEnd + 0.05, data: act});
+    });
+    events.sort((a, b) => a.y - b.y);
 
+    // 7. 生成Mermaid
     let mermaidOutput = "sequenceDiagram\n";
-    uniqueParticipants.forEach(p => {
-        if (p.alias !== p.name) {
-            mermaidOutput += `  participant ${p.alias} as "${p.name}"\n`;
-        } else {
-            mermaidOutput += `  participant ${p.name}\n`;
-        }
+    participants.forEach(p => {
+        mermaidOutput += `  participant ${p.name}\n`;
     });
     mermaidOutput += "\n";
 
-    const events = []; // To store messages and notes, then sort by Y
-
-    // Extract Messages
-    const messageLineElements = Array.from(svgElement.querySelectorAll('line[class^="messageLine"]'));
-    const messageTextElements = Array.from(svgElement.querySelectorAll('text.messageText'));
-
-    messageLineElements.forEach((lineEl, index) => {
-        const x1 = parseFloat(lineEl.getAttribute('x1'));
-        const y1 = parseFloat(lineEl.getAttribute('y1'));
-        const x2 = parseFloat(lineEl.getAttribute('x2'));
-
-        let fromActorName = null;
-        let toActorName = null;
-        let minDiffFrom = Infinity;
-        let minDiffTo = Infinity;
-
-        uniqueParticipants.forEach(p => {
-            const diff1 = Math.abs(p.x - x1);
-            if (diff1 < minDiffFrom) {
-                minDiffFrom = diff1;
-                fromActorName = p.alias; // Use alias for Mermaid syntax
-            }
-            const diff2 = Math.abs(p.x - x2);
-            if (diff2 < minDiffTo) {
-                minDiffTo = diff2;
-                toActorName = p.alias; // Use alias for Mermaid syntax
-            }
-        });
-        
-        // Message text Y is usually close to line Y. The text element has its own Y.
-        // Let's use the messageTextElements[index]'s Y if available and reliable.
-        let eventY = y1;
-        let textContent = "";
-        if (messageTextElements[index]) {
-            textContent = messageTextElements[index].textContent.trim().replace(/"/g, '#quot;');
-            const textY = parseFloat(messageTextElements[index].getAttribute('y'));
-            if (!isNaN(textY)) eventY = textY; // Use text's Y for sorting if it's more central to the message
-        }
-
-        const lineClass = lineEl.getAttribute('class') || "";
-        
-        // 根据线条类和可能的标记确定箭头类型
-        let arrowType = '->>'; // 默认为带箭头的实线
-        
-        // 检测线条类型（虚线或实线）
-        const isDashed = lineClass.includes('messageLine1') || lineClass.includes('dashed');
-        
-        // 检测特殊标记（如果有）
-        const markerEnd = lineEl.getAttribute('marker-end') || '';
-        const hasX = markerEnd.includes('cross') || markerEnd.includes('x-mark');
-        const isOpen = markerEnd.includes('open') || markerEnd.includes('circle');
-        const isBidirectional = lineClass.includes('bi') || lineClass.includes('both');
-        
-        // 确定箭头类型
-        if (isBidirectional) {
-            arrowType = isDashed ? '<<-->>' : '<<->>';
-        } else if (hasX) {
-            arrowType = isDashed ? '--x' : '-x';
-        } else if (isOpen) {
-            arrowType = isDashed ? '--)' : '-)';
-        } else {
-            arrowType = isDashed ? '-->>' : '->>';
-        }
-
-        if (fromActorName && toActorName) {
-            events.push({
-                y: eventY,
-                type: 'message',
-                data: {
-                    from: fromActorName,
-                    to: toActorName,
-                    arrow: arrowType,
-                    text: textContent
-                }
-            });
-        }
-    });
-
-    // Extract Notes
-    svgElement.querySelectorAll('g > rect.note').forEach(noteRect => {
-        const rectY = parseFloat(noteRect.getAttribute('y'));
-        const noteX = parseFloat(noteRect.getAttribute('x'));
-        const noteWidth = parseFloat(noteRect.getAttribute('width'));
-        
-        let noteTextContent = "Note"; // Default text
-        // Note text is within the same <g> as the rect.note in this SVG
-        const noteTextElement = noteRect.parentElement.querySelector('text.noteText');
-
-        if (noteTextElement) {
-             noteTextContent = Array.from(noteTextElement.querySelectorAll('tspan'))
-                               .map(tspan => tspan.textContent.trim())
-                               .join(' ') || noteTextElement.textContent.trim();
-             noteTextContent = noteTextContent.replace(/"/g, '#quot;');
-        }
-
-        let noteMermaidData = { text: noteTextContent };
-        let placementDetermined = false;
-
-        // Try to determine "over P1,P2" or "over P"
-        const coveredParticipants = uniqueParticipants.filter(p => {
-            const participantBoxStartX = p.x - 75; // Approximate box width 150
-            const participantBoxEndX = p.x + 75;
-            // Check for overlap: note range vs participant box range
-            return Math.max(noteX, participantBoxStartX) < Math.min(noteX + noteWidth, participantBoxEndX);
-        });
-
-        if (coveredParticipants.length > 1) {
-            // Sort covered participants by their X position
-            coveredParticipants.sort((a,b) => a.x - b.x);
-            noteMermaidData.position = 'over'; // Mermaid uses "over A,B" for notes spanning multiple actors
-            noteMermaidData.actor1 = coveredParticipants[0].alias;
-            noteMermaidData.actor2 = coveredParticipants[coveredParticipants.length - 1].alias;
-            placementDetermined = true;
-        } else if (coveredParticipants.length === 1) {
-            noteMermaidData.position = 'over';
-            noteMermaidData.actor1 = coveredParticipants[0].alias;
-            placementDetermined = true;
-        }
-
-        // If not "over", try "left of" or "right of" the closest participant
-        if (!placementDetermined) {
-            let closestParticipant = null;
-            let minDistToClosest = Infinity;
-            uniqueParticipants.forEach(p => {
-                const dist = Math.abs(p.x - (noteX + noteWidth / 2)); // Distance from note center to participant lifeline
-                if (dist < minDistToClosest) {
-                    minDistToClosest = dist;
-                    closestParticipant = p;
-                }
-            });
-
-            if (closestParticipant) {
-                if (noteX + noteWidth < closestParticipant.x - 10) { // Note ends before participant lifeline (with margin)
-                    noteMermaidData.position = 'left of';
-                    noteMermaidData.actor1 = closestParticipant.alias;
-                } else if (noteX > closestParticipant.x + 10) { // Note starts after participant lifeline (with margin)
-                    noteMermaidData.position = 'right of';
-                    noteMermaidData.actor1 = closestParticipant.alias;
-                } else { // Default to "over" the closest if it's very near or slightly overlapping
-                    noteMermaidData.position = 'over';
-                    noteMermaidData.actor1 = closestParticipant.alias;
-                }
-                placementDetermined = true;
-            }
-        }
-        
-        if (placementDetermined && noteMermaidData.actor1) {
-            events.push({
-                y: rectY, // Sort notes by their rect's Y position
-                type: 'note',
-                data: noteMermaidData
-            });
-        }
-    });
-
-    // Sort all events by Y coordinate
-    events.sort((a, b) => a.y - b.y);
-
-    // Generate Mermaid lines for events
+    let loopStack = [];
+    let activationStack = [];
     events.forEach(event => {
-        if (event.type === 'message') {
-            const m = event.data;
-            mermaidOutput += `  ${m.from}${m.arrow}${m.to}: ${m.text}\n`;
-        } else if (event.type === 'note') {
-            const n = event.data;
-            if (n.position === 'over' && n.actor2) { // Handles "Note over P1,P2"
-                mermaidOutput += `  Note over ${n.actor1},${n.actor2}: ${n.text}\n`;
-            } else { // 'over P', 'left of P', 'right of P'
-                mermaidOutput += `  Note ${n.position} ${n.actor1}: ${n.text}\n`;
+        if (event.type === 'loop_start') {
+            const text = event.data.text ? ` ${event.data.text}` : '';
+            mermaidOutput += `  loop${text}\n`;
+            loopStack.push(event.data);
+        } else if (event.type === 'loop_end') {
+            if (loopStack.length > 0) {
+                mermaidOutput += `  end\n`;
+                loopStack.pop();
             }
+        } else if (event.type === 'activate') {
+            let minDist = Infinity, actor = null;
+            participants.forEach(p => {
+                const dist = Math.abs(p.x - event.data.x);
+                if (dist < minDist) { minDist = dist; actor = p.name; }
+            });
+            if (actor) {
+                mermaidOutput += `  activate ${actor}\n`;
+                activationStack.push(actor);
+            }
+        } else if (event.type === 'deactivate') {
+            if (activationStack.length > 0) {
+                const actor = activationStack.pop();
+                mermaidOutput += `  deactivate ${actor}\n`;
+            }
+        } else if (event.type === 'message') {
+            let indent = '';
+            if (loopStack.length > 0) indent = '  ';
+            const m = event.data;
+            mermaidOutput += `${indent}  ${m.from}${m.arrow}${m.to}: ${m.text}\n`;
         }
     });
-    
-    if (uniqueParticipants.length === 0 && events.length === 0) return null; // No sequence elements found
+    while (loopStack.length > 0) { mermaidOutput += `  end\n`; loopStack.pop(); }
+    while (activationStack.length > 0) { mermaidOutput += `  deactivate ${activationStack.pop()}\n`; }
 
+    if (participants.length === 0 && events.length === 0) return null;
     return '```mermaid\n' + mermaidOutput.trim() + '\n```';
 }
 // Helper function: recursively process nodes
