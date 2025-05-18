@@ -113,15 +113,17 @@ function convertFlowchartSvgToMermaidText(svgElement) {
 
   let mermaidCode = "flowchart TD\n\n";
   const nodes = {}; 
-  const edges = [];
-  const edgeLabels = {}; // 用于存储边的标签
   const clusters = {}; 
+  const nodeClusterMap = {}; // 节点所属子图映射
 
-  // 处理节点
+  // 处理节点并收集位置信息
+  const nodePositions = {};
   const nodeElements = svgElement.querySelectorAll('g.node');
   nodeElements.forEach(nodeEl => {
     const svgId = nodeEl.id;
     let textContent = "";
+    
+    // 尝试多种方式获取节点文本
     const textFo = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p, .label foreignObject p, .label p');
     if (textFo) {
       textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
@@ -131,107 +133,165 @@ function convertFlowchartSvgToMermaidText(svgElement) {
         textContent = textElement.textContent.trim().replace(/"/g, '#quot;');
       }
     }
+    
+    // 创建节点ID
     let mermaidId = svgId.replace(/^flowchart-/, '');
     mermaidId = mermaidId.replace(/-\d+$/, '');
-    nodes[svgId] = { mermaidId: mermaidId, text: textContent, svgId: svgId };
+    
+    nodes[svgId] = { 
+      mermaidId: mermaidId, 
+      text: textContent, 
+      svgId: svgId 
+    };
+
+    // 获取节点位置
+    let position = null;
+    
+    // 从transform属性获取位置
+    const transform = nodeEl.getAttribute('transform');
+    if (transform) {
+      const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      if (match) {
+        position = {
+          x: parseFloat(match[1]),
+          y: parseFloat(match[2])
+        };
+      }
+    }
+    
+    // 如果无法从transform获取，尝试从矩形元素获取
+    if (!position) {
+      const rect = nodeEl.querySelector('rect');
+      if (rect) {
+        const x = parseFloat(rect.getAttribute('x') || 0);
+        const y = parseFloat(rect.getAttribute('y') || 0);
+        const width = parseFloat(rect.getAttribute('width') || 0);
+        const height = parseFloat(rect.getAttribute('height') || 0);
+        
+        position = {
+          x: x + width / 2, // 使用中心点坐标
+          y: y + height / 2
+        };
+      }
+    }
+    
+    if (position) {
+      nodePositions[mermaidId] = position;
+    }
   });
 
-  // 处理集群/子图
-  const clusterNodeMapping = { 
-    "subGraph0": { title: "User Layer", nodeSvgIds: ["flowchart-Client-0", "flowchart-Server-1"] },
-    "subGraph2": { title: "Transport Layer", nodeSvgIds: ["flowchart-ClientTransport-7", "flowchart-ServerTransport-8", "flowchart-SSE-9", "flowchart-Stdio-10"] },
-    "subGraph1": { title: "Protocol Layer", nodeSvgIds: ["flowchart-JSONRPC-2", "flowchart-Tools-3", "flowchart-Resources-4", "flowchart-Prompts-5", "flowchart-Schema-6"] }
-  };
+  // 处理子图/集群
+  const clusterBounds = {};
   const svgClusterElements = svgElement.querySelectorAll('g.cluster');
   svgClusterElements.forEach(clusterEl => {
     const clusterSvgId = clusterEl.id;
-    const labelFo = clusterEl.querySelector('.cluster-label foreignObject div > span > p, .cluster-label foreignObject div > p, .cluster-label foreignObject p');
-    const title = labelFo ? labelFo.textContent.trim() : clusterSvgId;
+    // 获取子图标题
+    let title = "";
+    const labelFo = clusterEl.querySelector('.cluster-label foreignObject div > span > p, .cluster-label foreignObject div > p, .cluster-label foreignObject p, .cluster-label foreignObject, g foreignObject div, g foreignObject span');
+    if (labelFo) {
+      if (labelFo.textContent) {
+        title = labelFo.textContent.trim();
+      } else if (labelFo.querySelector('p')) {
+        title = labelFo.querySelector('p').textContent.trim();
+      }
+    }
+    if (!title) {
+      title = clusterSvgId;
+    }
     const clusterMermaidId = title.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-    clusters[clusterMermaidId] = { title: title, nodes: [], svgId: clusterSvgId };
-    if (clusterNodeMapping[clusterSvgId] && clusterNodeMapping[clusterSvgId].nodeSvgIds) {
-      clusterNodeMapping[clusterSvgId].nodeSvgIds.forEach(nodeSvgId => {
-        if (nodes[nodeSvgId]) {
-          clusters[clusterMermaidId].nodes.push(nodes[nodeSvgId].mermaidId);
-          nodes[nodeSvgId].clusterMermaidId = clusterMermaidId;
-        }
-      });
+    clusters[clusterMermaidId] = { 
+      title: title, 
+      nodes: [], 
+      svgId: clusterSvgId,
+      edges: []
+    };
+    const rectEl = clusterEl.querySelector('rect');
+    if (rectEl) {
+      const x = parseFloat(rectEl.getAttribute('x') || 0);
+      const y = parseFloat(rectEl.getAttribute('y') || 0);
+      const width = parseFloat(rectEl.getAttribute('width') || 0);
+      const height = parseFloat(rectEl.getAttribute('height') || 0);
+      if (!isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height)) {
+        clusterBounds[clusterMermaidId] = {
+          x: x,
+          y: y,
+          width: width,
+          height: height,
+          right: x + width,
+          bottom: y + height,
+          area: width * height
+        };
+      }
     }
   });
-  
-  // 输出集群/子图
-  const definedNodesInClusters = new Set();
-  for (const clusterMermaidId in clusters) {
-    const cluster = clusters[clusterMermaidId];
-    mermaidCode += `subgraph ${clusterMermaidId} ["${cluster.title}"]\n`;
-    cluster.nodes.forEach(nodeMermaidId => {
-      const nodeInfo = Object.values(nodes).find(n => n.mermaidId === nodeMermaidId && n.clusterMermaidId === clusterMermaidId);
-      if (nodeInfo) {
-           mermaidCode += `    ${nodeInfo.mermaidId}["${nodeInfo.text}"]\n`;
-           definedNodesInClusters.add(nodeInfo.mermaidId); 
-      }
-    });
-    mermaidCode += "end\n\n";
-  }
-  
-  // 输出独立节点
-  for (const svgId in nodes) {
-    const node = nodes[svgId];
-    if (!node.clusterMermaidId && !definedNodesInClusters.has(node.mermaidId)) {
-      if (!mermaidCode.includes(`${node.mermaidId}["`)) {
-           mermaidCode += `${node.mermaidId}["${node.text}"]\n`;
+
+  // 只用严格空间包含+最内层优先分配节点到子图
+  for (const nodeId in nodePositions) {
+    const pos = nodePositions[nodeId];
+    // 找出所有包含该节点的子图
+    const containingClusters = Object.entries(clusterBounds).filter(([clusterId, bounds]) =>
+      pos.x >= bounds.x && pos.x <= bounds.right &&
+      pos.y >= bounds.y && pos.y <= bounds.bottom
+    );
+    if (containingClusters.length > 0) {
+      // 选面积最小的（最内层）
+      containingClusters.sort((a, b) => a[1].area - b[1].area);
+      const clusterId = containingClusters[0][0];
+      nodeClusterMap[nodeId] = clusterId;
+      clusters[clusterId].nodes.push(nodeId);
+      // 更新节点对象
+      for (const svgId in nodes) {
+        if (nodes[svgId].mermaidId === nodeId) {
+          nodes[svgId].clusterMermaidId = clusterId;
+          break;
+        }
       }
     }
   }
-  mermaidCode += "\n";
 
-  // 处理边标签
-  const edgeLabelElements = svgElement.querySelectorAll('g.edgeLabel');
-  // 直接使用edgeLabel的ID进行匹配，这是最准确的方法
+  // 使用基于空间位置和距离的方法分配节点到子图
+  // 可以考虑分析节点与子图之间的相对位置关系来优化分配结果
+
+  // 处理边的标签
   const edgeLabelsById = {};
   
-  edgeLabelElements.forEach(labelEl => {
-    // 获取标签ID，这通常对应于边的ID
+  // 提取所有边标签
+  svgElement.querySelectorAll('g.edgeLabel').forEach(labelEl => {
     const labelId = labelEl.id || "";
-    
-    // 尝试各种不同的选择器来获取标签文本
     let labelText = "";
     
-    // 尝试方法1：直接查找p元素
-    const labelP = labelEl.querySelector('.label foreignObject p, .label foreignObject span p, .label foreignObject div p');
-    if (labelP) {
-      labelText = labelP.textContent.trim();
-    }
+    // 尝试多种方式获取标签文本
+    const selectors = [
+      '.label foreignObject p', 
+      '.label foreignObject span p', 
+      '.label foreignObject div p',
+      '.label foreignObject span.edgeLabel',
+      '.label foreignObject div.labelBkg span.edgeLabel',
+      'foreignObject'
+    ];
     
-    // 尝试方法2：查找span.edgeLabel元素
-    if (!labelText) {
-      const labelSpan = labelEl.querySelector('.label foreignObject span.edgeLabel, .label foreignObject div.labelBkg span.edgeLabel');
-      if (labelSpan) {
-        labelText = labelSpan.textContent.trim();
+    for (const selector of selectors) {
+      const el = labelEl.querySelector(selector);
+      if (el && el.textContent) {
+        labelText = el.textContent.trim();
+        if (labelText) break;
       }
     }
     
-    // 尝试方法3：直接从foreignObject获取文本
-    if (!labelText) {
-      const foreignObj = labelEl.querySelector('foreignObject');
-      if (foreignObj) {
-        labelText = foreignObj.textContent.trim();
-      }
+    // 如果上面的方法都失败，直接获取内部文本
+    if (!labelText && labelEl.textContent) {
+      labelText = labelEl.textContent.trim();
     }
     
     if (labelId && labelText) {
-      // 保存边ID与标签文本的对应关系
       edgeLabelsById[labelId] = labelText;
-      
-      // 调试输出
-      console.log(`找到标签: ID=${labelId}, 文本=${labelText}`);
     }
   });
-
-  // 提取和存储所有标签信息
+  
+  // 分析边和标签的位置关系
   const labelInfo = {};
   
-  // 方法1：处理特定的edgeLabel元素
+  // 获取标签的位置信息
   svgElement.querySelectorAll('g.edgeLabel').forEach(labelGroup => {
     const transform = labelGroup.getAttribute('transform') || "";
     const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
@@ -239,36 +299,34 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       const x = parseFloat(match[1]);
       const y = parseFloat(match[2]);
       
-      // 尝试提取标签文本
       let text = "";
-      // 尝试不同的选择器
       const selectors = [
-        '.label foreignObject .edgeLabel p',
-        '.label foreignObject .labelBkg span.edgeLabel',
-        '.label foreignObject p',
-        '.label foreignObject div',
+        '.label foreignObject p', 
+        '.label foreignObject span p', 
+        '.label foreignObject div p',
+        '.label foreignObject span.edgeLabel',
+        '.label foreignObject div.labelBkg span.edgeLabel',
         'foreignObject'
       ];
       
       for (const selector of selectors) {
         const el = labelGroup.querySelector(selector);
-        if (el) {
-          const t = el.textContent.trim();
-          if (t) {
-            text = t;
-            break;
-          }
+        if (el && el.textContent) {
+          text = el.textContent.trim();
+          if (text) break;
         }
       }
       
+      if (!text && labelGroup.textContent) {
+        text = labelGroup.textContent.trim();
+      }
+      
       if (text) {
-        // 记录标签的位置和文本
         labelInfo[`${x},${y}`] = {
           text: text,
           id: labelGroup.id || ""
         };
         
-        // 同时记录ID映射，如果有ID的话
         if (labelGroup.id) {
           edgeLabelsById[labelGroup.id] = text;
         }
@@ -276,128 +334,163 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   });
   
-  // 方法2：处理路径和相关标签
-  const edgePathToLabel = {};
+  // 处理边，通过ID匹配和位置匹配来找到对应的标签
+  const innerClusterEdges = {}; // 子图内部的边
+  const interClusterEdges = []; // 子图之间的边
+  const normalEdges = []; // 不在任何子图中的边
+  
   svgElement.querySelectorAll('path.flowchart-link').forEach(path => {
     const pathId = path.id || "";
     if (!pathId) return;
     
-    const pathD = path.getAttribute('d') || "";
-    // 提取路径中间点的粗略位置
-    const midPointMatch = pathD.match(/M[^C]+C[^,]+,[^,]+,([^,]+),([^,]+)/);
-    if (midPointMatch) {
-      const midX = parseFloat(midPointMatch[1]);
-      const midY = parseFloat(midPointMatch[2]);
-      
-      // 查找最接近这个中点的标签
-      let closestLabel = null;
-      let closestDist = Infinity;
-      
-      for (const pos in labelInfo) {
-        const [x, y] = pos.split(',').map(parseFloat);
-        const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestLabel = labelInfo[pos];
-        }
-      }
-      
-      if (closestLabel && closestDist < 100) { // 使用一个合理的距离阈值
-        edgePathToLabel[pathId] = closestLabel.text;
-        // 同时记录在ID映射中
-        edgeLabelsById[pathId] = closestLabel.text;
-      }
-    }
-  });
-
-  // 处理边
-  const edgeElements = svgElement.querySelectorAll('path.flowchart-link');
-  edgeElements.forEach(edgeEl => {
-    const edgeId = edgeEl.id;
-    if (edgeId && (edgeId.startsWith("L_") || edgeId.startsWith("FL_"))) {
-      const idPrefix = edgeId.startsWith("L_") ? "L_" : "FL_";
-      const parts = edgeId.substring(idPrefix.length).split('_'); 
+    // 尝试解析节点关系，适用于常见的ID格式如 L_NodeA_NodeB
+    let sourceNode = null;
+    let targetNode = null;
+    let sourceName = null;
+    let targetName = null;
+    
+    if (pathId.startsWith("L_") || pathId.startsWith("FL_")) {
+      const idPrefix = pathId.startsWith("L_") ? "L_" : "FL_";
+      const parts = pathId.substring(idPrefix.length).split('_'); 
       if (parts.length >= 2) {
-        const sourceName = parts[0];
-        const targetName = parts[1]; 
-        const sourceNode = Object.values(nodes).find(n => n.mermaidId === sourceName);
-        const targetNode = Object.values(nodes).find(n => n.mermaidId === targetName);
-        
-        if (sourceNode && targetNode) {
-          // 尝试多种方法找到标签文本
-          
-          // 方法1：直接从ID映射中获取
-          let label = null;
-          if (edgeLabelsById[edgeId]) {
-            label = edgeLabelsById[edgeId];
-          } 
-          // 方法2：通过edgePathToLabel映射获取
-          else if (edgePathToLabel[edgeId]) {
-            label = edgePathToLabel[edgeId];
-          }
-          // 方法3：尝试匹配相应的edgeLabel ID
-          else {
-            const edgeLabelId = `edgeLabel-${sourceName}-${targetName}`;
-            if (edgeLabelsById[edgeLabelId]) {
-              label = edgeLabelsById[edgeLabelId];
-            }
-            // 方法4：尝试尝试各种可能的标签ID格式
-            else {
-              const possibleIds = [
-                `L-${sourceName}-${targetName}`,
-                `L_${sourceName}_${targetName}`,
-                `${sourceName}-${targetName}`,
-                `${sourceName}_${targetName}`
-              ];
-              
-              for (const possibleId of possibleIds) {
-                if (edgeLabelsById[possibleId]) {
-                  label = edgeLabelsById[possibleId];
-                  break;
-                }
-              }
-              
-              // 方法5：尝试查找包含源节点和目标节点名称的任何标签
-              if (!label) {
-                for (const labelId in edgeLabelsById) {
-                  if (labelId.includes(sourceName) && labelId.includes(targetName)) {
-                    label = edgeLabelsById[labelId];
-                    break;
-                  }
-                }
-              }
-            }
-          }
-          
-          // 特定图表中常见标签的硬编码映射（如果其他方法都失败）
-          if (!label && sourceName === "Agent" && targetName === "ToolCollection") {
-            label = "Uses";
-          } else if (!label && sourceName === "ToolCollection" && targetName === "ToolMap") {
-            label = "Contains";
-          } else if (!label && sourceName === "ToolCollection" && targetName === "Methods") {
-            label = "Provides";
-          } else if (!label && sourceName === "ToolMap" && (targetName === "Tool1" || targetName === "Tool2" || targetName === "ToolN")) {
-            label = "Maps to";
-          } else if (!label && sourceName === "BrowserContextHelper" && targetName === "BrowserUseTool") {
-            label = "Uses";
-          }
-          
-          // 使用流程图格式添加边标签: A-->|text|B
-          const labelPart = label ? `|${label}|` : "";
-          edges.push(`    ${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`);
-        } else {
-          console.warn(`Flowchart: Could not fully resolve edge: ${edgeId}. Source found: ${!!sourceNode}, Target found: ${!!targetNode}`);
+        sourceName = parts[0];
+        targetName = parts[1]; 
+        sourceNode = Object.values(nodes).find(n => n.mermaidId === sourceName);
+        targetNode = Object.values(nodes).find(n => n.mermaidId === targetName);
+      }
+    }
+    
+    // 如果无法通过ID解析，尝试通过marker-end或路径来推断
+    if (!sourceNode || !targetNode) {
+      // 这里可以添加其他启发式方法，但需要更复杂的解析
+      // 暂时跳过不能解析的边
+      return;
+    }
+    
+    // 查找此边的标签
+    let label = null;
+    
+    // 1. 直接从ID映射获取
+    if (edgeLabelsById[pathId]) {
+      label = edgeLabelsById[pathId];
+    }
+    // 2. 尝试其他可能的标签ID格式
+    else {
+      const possibleIds = [
+        `edgeLabel-${sourceName}-${targetName}`,
+        `L-${sourceName}-${targetName}`,
+        `L_${sourceName}_${targetName}`,
+        `${sourceName}-${targetName}`,
+        `${sourceName}_${targetName}`
+      ];
+      
+      for (const possibleId of possibleIds) {
+        if (edgeLabelsById[possibleId]) {
+          label = edgeLabelsById[possibleId];
+          break;
         }
       }
     }
+    
+    // 3. 通过位置匹配
+    if (!label) {
+      const pathD = path.getAttribute('d') || "";
+      const midPointMatch = pathD.match(/M[^C]+C[^,]+,[^,]+,([^,]+),([^,]+)/);
+      if (midPointMatch) {
+        const midX = parseFloat(midPointMatch[1]);
+        const midY = parseFloat(midPointMatch[2]);
+        
+        let closestLabel = null;
+        let closestDist = Infinity;
+        
+        for (const pos in labelInfo) {
+          const [x, y] = pos.split(',').map(parseFloat);
+          const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestLabel = labelInfo[pos];
+          }
+        }
+        
+        if (closestLabel && closestDist < 100) {
+          label = closestLabel.text;
+        }
+      }
+    }
+    
+    // 构建边文本
+    const labelPart = label ? `|${label}|` : "";
+    const edgeText = `${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`;
+    
+    // 判断边的类型：子图内部、子图间、普通边
+    const sourceCluster = nodeClusterMap[sourceNode.mermaidId];
+    const targetCluster = nodeClusterMap[targetNode.mermaidId];
+    
+    if (sourceCluster && targetCluster && sourceCluster === targetCluster) {
+      // 子图内部的边
+      if (!innerClusterEdges[sourceCluster]) {
+        innerClusterEdges[sourceCluster] = [];
+      }
+      innerClusterEdges[sourceCluster].push(`    ${edgeText}`);
+      
+      // 将边也保存到对应子图的edges集合中
+      if (clusters[sourceCluster]) {
+        clusters[sourceCluster].edges.push(`    ${edgeText}`);
+      }
+    } else if (sourceCluster || targetCluster) {
+      // 子图之间的边或子图与外部节点的边
+      interClusterEdges.push(`    ${edgeText}`);
+    } else {
+      // 普通边（不在任何子图中）
+      normalEdges.push(`    ${edgeText}`);
+    }
   });
   
-  // 输出边
-  [...new Set(edges)].forEach(edge => {
-    mermaidCode += `${edge}\n`;
-  });
+  // 构建Mermaid输出
   
-  if (Object.keys(nodes).length === 0 && edges.length === 0 && Object.keys(clusters).length === 0) return null;
+  // 1. 首先输出所有节点的定义
+  for (const svgId in nodes) {
+    const node = nodes[svgId];
+    if (!mermaidCode.includes(`${node.mermaidId}["`)) {
+      mermaidCode += `${node.mermaidId}["${node.text}"]\n`;
+    }
+  }
+  
+  // 2. 输出普通边和子图间的边
+  if (normalEdges.length > 0) {
+    mermaidCode += "\n" + normalEdges.join('\n') + '\n';
+  }
+  
+  if (interClusterEdges.length > 0) {
+    mermaidCode += "\n" + interClusterEdges.join('\n') + '\n';
+  }
+  
+  // 3. 输出子图结构及其内部边
+  for (const clusterMermaidId in clusters) {
+    const cluster = clusters[clusterMermaidId];
+    
+    // 即使子图没有节点，也输出
+    mermaidCode += `subgraph ${clusterMermaidId} ["${cluster.title}"]\n`;
+    
+    // 输出子图中的节点
+    for (const nodeId of cluster.nodes) {
+      const node = Object.values(nodes).find(n => n.mermaidId === nodeId);
+      if (node) {
+        mermaidCode += `    ${nodeId}\n`;
+      }
+    }
+    
+    // 输出子图内部的边
+    if (cluster.edges && cluster.edges.length > 0) {
+      mermaidCode += cluster.edges.join('\n') + '\n';
+    } else if (innerClusterEdges[clusterMermaidId]) {
+      mermaidCode += innerClusterEdges[clusterMermaidId].join('\n') + '\n';
+    }
+    
+    mermaidCode += "end\n\n";
+  }
+  
+  if (Object.keys(nodes).length === 0 && Object.keys(clusters).length === 0) return null;
   return '```mermaid\n' + mermaidCode.trim() + '\n```';
 }
 
