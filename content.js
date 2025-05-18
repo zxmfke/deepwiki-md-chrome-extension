@@ -396,13 +396,12 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     if (!label) {
       const pathD = path.getAttribute('d') || "";
       const midPointMatch = pathD.match(/M[^C]+C[^,]+,[^,]+,([^,]+),([^,]+)/);
+      let midX = null, midY = null;
       if (midPointMatch) {
-        const midX = parseFloat(midPointMatch[1]);
-        const midY = parseFloat(midPointMatch[2]);
-        
+        midX = parseFloat(midPointMatch[1]);
+        midY = parseFloat(midPointMatch[2]);
         let closestLabel = null;
         let closestDist = Infinity;
-        
         for (const pos in labelInfo) {
           const [x, y] = pos.split(',').map(parseFloat);
           const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
@@ -411,9 +410,24 @@ function convertFlowchartSvgToMermaidText(svgElement) {
             closestLabel = labelInfo[pos];
           }
         }
-        
-        if (closestLabel && closestDist < 100) {
+        // 阈值放宽到200
+        if (closestLabel && closestDist < 200) {
           label = closestLabel.text;
+        }
+      }
+      // 兜底：如果label仍为null，再全局找一次最近label
+      if (!label && midX !== null && midY !== null) {
+        let minDist = Infinity, bestLabel = null;
+        for (const pos in labelInfo) {
+          const [x, y] = pos.split(',').map(parseFloat);
+          const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
+          if (dist < minDist) {
+            minDist = dist;
+            bestLabel = labelInfo[pos];
+          }
+        }
+        if (bestLabel && minDist < 250) { // 再放宽一点
+          label = bestLabel.text;
         }
       }
     }
