@@ -926,11 +926,20 @@ function processNode(node) {
       case "H6": resultMd = (element.textContent.trim() ? `###### ${element.textContent.trim()}\n\n` : ""); break;
       case "UL": {
         let list = "";
+        // 判断是否为source相关ul
+        const isSourceList = (
+          (element.previousElementSibling && /source/i.test(element.previousElementSibling.textContent)) ||
+          (element.parentElement && /source/i.test(element.parentElement.textContent)) ||
+          element.classList.contains('source-list')
+        );
         element.querySelectorAll(":scope > li").forEach((li) => {
           let liTxt = "";
           li.childNodes.forEach((c) => { try { liTxt += processNode(c); } catch (e) { console.error("Error processing child of LI:", c, e); liTxt += "[err]";}});
-          // Remove extra trailing newlines that might be produced by internal block elements
-          liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
+          if (isSourceList) {
+            liTxt = liTxt.trim().replace(/\n+/g, ' '); // source相关li合并为一行
+          } else {
+            liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
+          }
           if (liTxt) list += `* ${liTxt}\n`;
         });
         resultMd = list + (list ? "\n" : "");
@@ -939,10 +948,20 @@ function processNode(node) {
       case "OL": {
         let list = "";
         let i = 1;
+        // 判断是否为source相关ol
+        const isSourceList = (
+          (element.previousElementSibling && /source/i.test(element.previousElementSibling.textContent)) ||
+          (element.parentElement && /source/i.test(element.parentElement.textContent)) ||
+          element.classList.contains('source-list')
+        );
         element.querySelectorAll(":scope > li").forEach((li) => {
           let liTxt = "";
           li.childNodes.forEach((c) => { try { liTxt += processNode(c); } catch (e) { console.error("Error processing child of LI:", c, e); liTxt += "[err]";}});
-          liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
+          if (isSourceList) {
+            liTxt = liTxt.trim().replace(/\n+/g, ' ');
+          } else {
+            liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
+          }
           if (liTxt) {
             list += `${i}. ${liTxt}\n`;
             i++;
