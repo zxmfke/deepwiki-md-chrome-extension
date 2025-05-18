@@ -114,16 +114,16 @@ function convertFlowchartSvgToMermaidText(svgElement) {
   let mermaidCode = "flowchart TD\n\n";
   const nodes = {}; 
   const clusters = {}; 
-  const nodeClusterMap = {}; // 节点所属子图映射
+  const nodeClusterMap = {}; // Mapping of node to its subgraph
 
-  // 处理节点并收集位置信息
+  // Process nodes and collect position information
   const nodePositions = {};
   const nodeElements = svgElement.querySelectorAll('g.node');
   nodeElements.forEach(nodeEl => {
     const svgId = nodeEl.id;
     let textContent = "";
     
-    // 尝试多种方式获取节点文本
+    // Try multiple ways to get node text
     const textFo = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p, .label foreignObject p, .label p');
     if (textFo) {
       textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
@@ -134,7 +134,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 创建节点ID
+    // Create node ID
     let mermaidId = svgId.replace(/^flowchart-/, '');
     mermaidId = mermaidId.replace(/-\d+$/, '');
     
@@ -144,10 +144,10 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       svgId: svgId 
     };
 
-    // 获取节点位置
+    // Get node position
     let position = null;
     
-    // 从transform属性获取位置
+    // Get position from transform attribute
     const transform = nodeEl.getAttribute('transform');
     if (transform) {
       const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
@@ -159,7 +159,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 如果无法从transform获取，尝试从矩形元素获取
+    // If cannot get from transform, try from rect element
     if (!position) {
       const rect = nodeEl.querySelector('rect');
       if (rect) {
@@ -169,7 +169,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
         const height = parseFloat(rect.getAttribute('height') || 0);
         
         position = {
-          x: x + width / 2, // 使用中心点坐标
+          x: x + width / 2, // Use center coordinates
           y: y + height / 2
         };
       }
@@ -180,12 +180,12 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   });
 
-  // 处理子图/集群
+  // Process subgraphs/clusters
   const clusterBounds = {};
   const svgClusterElements = svgElement.querySelectorAll('g.cluster');
   svgClusterElements.forEach(clusterEl => {
     const clusterSvgId = clusterEl.id;
-    // 获取子图标题
+    // Get subgraph title
     let title = "";
     const labelFo = clusterEl.querySelector('.cluster-label foreignObject div > span > p, .cluster-label foreignObject div > p, .cluster-label foreignObject p, .cluster-label foreignObject, g foreignObject div, g foreignObject span');
     if (labelFo) {
@@ -225,21 +225,22 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   });
 
-  // 只用严格空间包含+最内层优先分配节点到子图
+  // Use spatial position and distance to assign nodes to subgraphs
+  // You can consider analyzing the relative position between nodes and subgraphs to optimize assignment
   for (const nodeId in nodePositions) {
     const pos = nodePositions[nodeId];
-    // 找出所有包含该节点的子图
+    // Find all subgraphs containing this node
     const containingClusters = Object.entries(clusterBounds).filter(([clusterId, bounds]) =>
       pos.x >= bounds.x && pos.x <= bounds.right &&
       pos.y >= bounds.y && pos.y <= bounds.bottom
     );
     if (containingClusters.length > 0) {
-      // 选面积最小的（最内层）
+      // Choose the smallest area (innermost)
       containingClusters.sort((a, b) => a[1].area - b[1].area);
       const clusterId = containingClusters[0][0];
       nodeClusterMap[nodeId] = clusterId;
       clusters[clusterId].nodes.push(nodeId);
-      // 更新节点对象
+      // Update node object
       for (const svgId in nodes) {
         if (nodes[svgId].mermaidId === nodeId) {
           nodes[svgId].clusterMermaidId = clusterId;
@@ -249,18 +250,15 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   }
 
-  // 使用基于空间位置和距离的方法分配节点到子图
-  // 可以考虑分析节点与子图之间的相对位置关系来优化分配结果
-
-  // 处理边的标签
+  // Process edge labels
   const edgeLabelsById = {};
   
-  // 提取所有边标签
+  // Extract all edge labels
   svgElement.querySelectorAll('g.edgeLabel').forEach(labelEl => {
     const labelId = labelEl.id || "";
     let labelText = "";
     
-    // 尝试多种方式获取标签文本
+    // Try multiple ways to get label text
     const selectors = [
       '.label foreignObject p', 
       '.label foreignObject span p', 
@@ -278,7 +276,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 如果上面的方法都失败，直接获取内部文本
+    // If all above fail, get inner text directly
     if (!labelText && labelEl.textContent) {
       labelText = labelEl.textContent.trim();
     }
@@ -288,10 +286,10 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   });
   
-  // 分析边和标签的位置关系
+  // Analyze the relationship between edges and labels by position
   const labelInfo = {};
   
-  // 获取标签的位置信息
+  // Get label position information
   svgElement.querySelectorAll('g.edgeLabel').forEach(labelGroup => {
     const transform = labelGroup.getAttribute('transform') || "";
     const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
@@ -334,16 +332,16 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   });
   
-  // 处理边，通过ID匹配和位置匹配来找到对应的标签
-  const innerClusterEdges = {}; // 子图内部的边
-  const interClusterEdges = []; // 子图之间的边
-  const normalEdges = []; // 不在任何子图中的边
+  // Process edges, find corresponding labels by ID and position
+  const innerClusterEdges = {}; // Edges inside subgraph
+  const interClusterEdges = []; // Edges between subgraphs
+  const normalEdges = []; // Edges not in any subgraph
   
   svgElement.querySelectorAll('path.flowchart-link').forEach(path => {
     const pathId = path.id || "";
     if (!pathId) return;
     
-    // 尝试解析节点关系，适用于常见的ID格式如 L_NodeA_NodeB
+    // Try to parse node relationship, suitable for common ID format like L_NodeA_NodeB
     let sourceNode = null;
     let targetNode = null;
     let sourceName = null;
@@ -360,21 +358,21 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 如果无法通过ID解析，尝试通过marker-end或路径来推断
+    // If cannot parse by ID, try to infer by marker-end or path
     if (!sourceNode || !targetNode) {
-      // 这里可以添加其他启发式方法，但需要更复杂的解析
-      // 暂时跳过不能解析的边
+      // You can add other heuristics here, but need more complex parsing
+      // Temporarily skip edges that cannot be parsed
       return;
     }
     
-    // 查找此边的标签
+    // Find the label for this edge
     let label = null;
     
-    // 1. 直接从ID映射获取
+    // 1. Get directly from ID mapping
     if (edgeLabelsById[pathId]) {
       label = edgeLabelsById[pathId];
     }
-    // 2. 尝试其他可能的标签ID格式
+    // 2. Try other possible label ID formats
     else {
       const possibleIds = [
         `edgeLabel-${sourceName}-${targetName}`,
@@ -392,7 +390,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 3. 通过位置匹配
+    // 3. Match by position
     if (!label) {
       const pathD = path.getAttribute('d') || "";
       const midPointMatch = pathD.match(/M[^C]+C[^,]+,[^,]+,([^,]+),([^,]+)/);
@@ -410,12 +408,12 @@ function convertFlowchartSvgToMermaidText(svgElement) {
             closestLabel = labelInfo[pos];
           }
         }
-        // 阈值放宽到200
+        // Relax threshold to 200
         if (closestLabel && closestDist < 200) {
           label = closestLabel.text;
         }
       }
-      // 兜底：如果label仍为null，再全局找一次最近label
+      // Fallback: if label is still null, globally find the nearest label again
       if (!label && midX !== null && midY !== null) {
         let minDist = Infinity, bestLabel = null;
         for (const pos in labelInfo) {
@@ -426,43 +424,43 @@ function convertFlowchartSvgToMermaidText(svgElement) {
             bestLabel = labelInfo[pos];
           }
         }
-        if (bestLabel && minDist < 250) { // 再放宽一点
+        if (bestLabel && minDist < 250) { // Relax a bit more
           label = bestLabel.text;
         }
       }
     }
     
-    // 构建边文本
+    // Build edge text
     const labelPart = label ? `|${label}|` : "";
     const edgeText = `${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`;
     
-    // 判断边的类型：子图内部、子图间、普通边
+    // Determine edge type: inside subgraph, between subgraphs, or normal edge
     const sourceCluster = nodeClusterMap[sourceNode.mermaidId];
     const targetCluster = nodeClusterMap[targetNode.mermaidId];
     
     if (sourceCluster && targetCluster && sourceCluster === targetCluster) {
-      // 子图内部的边
+      // Edge inside subgraph
       if (!innerClusterEdges[sourceCluster]) {
         innerClusterEdges[sourceCluster] = [];
       }
       innerClusterEdges[sourceCluster].push(`    ${edgeText}`);
       
-      // 将边也保存到对应子图的edges集合中
+      // Also save edge to the corresponding subgraph's edges set
       if (clusters[sourceCluster]) {
         clusters[sourceCluster].edges.push(`    ${edgeText}`);
       }
     } else if (sourceCluster || targetCluster) {
-      // 子图之间的边或子图与外部节点的边
+      // Edge between subgraphs or between subgraph and external node
       interClusterEdges.push(`    ${edgeText}`);
     } else {
-      // 普通边（不在任何子图中）
+      // Normal edge (not in any subgraph)
       normalEdges.push(`    ${edgeText}`);
     }
   });
   
-  // 构建Mermaid输出
+  // Build Mermaid output
   
-  // 1. 首先输出所有节点的定义
+  // 1. Output all node definitions first
   for (const svgId in nodes) {
     const node = nodes[svgId];
     if (!mermaidCode.includes(`${node.mermaidId}["`)) {
@@ -470,7 +468,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     }
   }
   
-  // 2. 输出普通边和子图间的边
+  // 2. Output normal edges and edges between subgraphs
   if (normalEdges.length > 0) {
     mermaidCode += "\n" + normalEdges.join('\n') + '\n';
   }
@@ -479,14 +477,14 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     mermaidCode += "\n" + interClusterEdges.join('\n') + '\n';
   }
   
-  // 3. 输出子图结构及其内部边
+  // 3. Output subgraph structure and its internal edges
   for (const clusterMermaidId in clusters) {
     const cluster = clusters[clusterMermaidId];
     
-    // 即使子图没有节点，也输出
+    // Output even if subgraph has no nodes
     mermaidCode += `subgraph ${clusterMermaidId} ["${cluster.title}"]\n`;
     
-    // 输出子图中的节点
+    // Output nodes in subgraph
     for (const nodeId of cluster.nodes) {
       const node = Object.values(nodes).find(n => n.mermaidId === nodeId);
       if (node) {
@@ -494,7 +492,7 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       }
     }
     
-    // 输出子图内部的边
+    // Output internal edges of subgraph
     if (cluster.edges && cluster.edges.length > 0) {
       mermaidCode += cluster.edges.join('\n') + '\n';
     } else if (innerClusterEdges[clusterMermaidId]) {
@@ -510,7 +508,6 @@ function convertFlowchartSvgToMermaidText(svgElement) {
 
 // Function for Class Diagram (ensure this exists from previous responses)
 function convertClassDiagramSvgToMermaidText(svgElement) {
-  // ... (previous implementation for class diagram)
   if (!svgElement) return null;
   const mermaidLines = ['classDiagram'];
   const classData = {}; 
@@ -561,12 +558,12 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     const fromClass = parts[1];
     const toClass = parts[2];
     
-    // 获取关键属性
+    // Get key attributes
     const markerEndAttr = path.getAttribute('marker-end') || "";
     const markerStartAttr = path.getAttribute('marker-start') || "";
     const pathClass = path.getAttribute('class') || "";
     
-    // 确定线条样式：实线或虚线
+    // Determine line style: solid or dashed
     const isDashed = path.classList.contains('dashed-line') || 
                      path.classList.contains('dotted-line') || 
                      pathClass.includes('dashed') || 
@@ -575,16 +572,16 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     
     let relationshipType = "";
     
-    // 继承关系: <|--（处理marker-start和marker-end两种情况）
+    // Inheritance relation: <|-- (handle both marker-start and marker-end cases)
     if (markerStartAttr.includes('extensionStart') || markerStartAttr.includes('inheritance')) { 
-        // 正确表示继承关系：箭头从子类指向父类
+        // Correctly represent inheritance relation: arrow from subclass to superclass
         relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
     } 
     else if (markerEndAttr.includes('extensionEnd') || markerEndAttr.includes('inheritance')) { 
-        // 正确表示继承关系：箭头从子类指向父类
+        // Correctly represent inheritance relation: arrow from subclass to superclass
         relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
     }
-    // 实现关系: ..|>
+    // Implementation relation: ..|>
     else if (markerStartAttr.includes('lollipopStart') || markerStartAttr.includes('implementStart')) {
         relationshipType = `${fromClass} ..|> ${toClass}`;
     }
@@ -592,7 +589,7 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
              (markerEndAttr.includes('interfaceEnd') && isDashed)) {
         relationshipType = `${fromClass} ..|> ${toClass}`;
     }
-    // 组合关系: *--
+    // Composition relation: *--
     else if (markerStartAttr.includes('compositionStart')) {
         relationshipType = `${toClass} *${lineStyle} ${fromClass}`;
     }
@@ -600,7 +597,7 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
              markerEndAttr.includes('diamondEnd') && markerEndAttr.includes('filled')) { 
         relationshipType = `${fromClass} *${lineStyle} ${toClass}`;
     } 
-    // 聚合关系: o--
+    // Aggregation relation: o--
     else if (markerStartAttr.includes('aggregationStart')) {
         relationshipType = `${toClass} o${lineStyle} ${fromClass}`;
     }
@@ -608,34 +605,34 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
              markerEndAttr.includes('diamondEnd') && !markerEndAttr.includes('filled')) { 
         relationshipType = `${fromClass} o${lineStyle} ${toClass}`;
     } 
-    // 依赖关系: ..>
+    // Dependency relation: ..>
     else if (markerStartAttr.includes('dependencyStart') && isDashed) {
         relationshipType = `${toClass} <.. ${fromClass}`;
     }
     else if ((markerEndAttr.includes('dependencyEnd') || markerEndAttr.includes('openEnd')) && isDashed) { 
         relationshipType = `${fromClass} ..> ${toClass}`;
     }
-    // 关联关系: -->
+    // Association relation: -->
     else if (markerStartAttr.includes('arrowStart') || markerStartAttr.includes('openStart')) {
         relationshipType = `${toClass} <${lineStyle} ${fromClass}`;
     }
     else if (markerEndAttr.includes('arrowEnd') || markerEndAttr.includes('openEnd')) { 
         relationshipType = `${fromClass} ${lineStyle}> ${toClass}`;
     }
-    // 无箭头实线链接: --
+    // Arrowless solid line link: --
     else if (lineStyle === "--" && !markerEndAttr.includes('End') && !markerStartAttr.includes('Start')) { 
         relationshipType = `${fromClass} -- ${toClass}`;
     }
-    // 无箭头虚线链接: ..
+    // Arrowless dashed line link: ..
     else if (lineStyle === ".." && !markerEndAttr.includes('End') && !markerStartAttr.includes('Start')) {
         relationshipType = `${fromClass} .. ${toClass}`;
     }
-    // 默认关系
+    // Default relation
     else {
         relationshipType = `${fromClass} ${lineStyle} ${toClass}`;
     }
     
-    // 获取关系标签文本
+    // Get relationship label text
     const labelText = (labelElements[index] && labelElements[index].textContent) ? 
                        labelElements[index].textContent.trim() : "";
     
@@ -649,14 +646,14 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
 }
 
 /**
- * Helper: 将 SVG Sequence Diagram 图表转换为 Mermaid 代码
+ * Helper: Convert SVG Sequence Diagram to Mermaid code
  * @param {SVGElement} svgElement - The SVG DOM element for the sequence diagram
  * @returns {string|null}
  */
 function convertSequenceDiagramSvgToMermaidText(svgElement) {
     if (!svgElement) return null;
 
-    // 1. 解析参与者（只用<text.actor-box>，保留原始文本和引号）
+    // 1. Parse participants (only use <text.actor-box>, keep original text and quotes)
     const participants = [];
     svgElement.querySelectorAll('g[id^="root-"] > text.actor-box').forEach((textEl) => {
         const name = textEl.textContent.trim();
@@ -668,7 +665,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
     participants.sort((a, b) => a.x - b.x);
     const participantNames = participants.map(p => p.name);
 
-    // 参与者竖线y区间
+    // Participant vertical line y range
     const actorRanges = participants.map(p => {
         let line = null;
         svgElement.querySelectorAll('line.actor-line').forEach(l => {
@@ -683,7 +680,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
         return { name: p.name, x: p.x, y1, y2 };
     });
 
-    // 2. 解析loop区间
+    // 2. Parse loop range
     let loops = [];
     let loopRects = [];
     svgElement.querySelectorAll('.loopLine').forEach(line => {
@@ -709,7 +706,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
         loops.push({xMin, xMax, yMin, yMax, label: loopLabel, text: loopText});
     }
 
-    // 3. 解析激活区间
+    // 3. Parse activation range
     const activations = [];
     svgElement.querySelectorAll('rect[class^="activation"]').forEach(rect => {
         const x = parseFloat(rect.getAttribute('x'));
@@ -725,13 +722,13 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
         }
     });
 
-    // 4. 按DOM顺序收集所有消息线和文本
+    // 4. Collect all message lines and texts in DOM order
     let messageLines = [];
     let messageTexts = [];
     const allNodes = Array.from(svgElement.querySelectorAll('*'));
     allNodes.forEach(el => {
         if (el.matches('line[class^="messageLine"], path[class^="messageLine"]')) {
-            // 解析from/to
+            // Parse from/to
             let x1, y1, x2, y2, y;
             if (el.tagName === 'line') {
                 x1 = parseFloat(el.getAttribute('x1'));
@@ -749,17 +746,9 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
                 }
             }
             y = (y1 + y2) / 2;
-            // 找最近的actor
-            let fromActor = null, toActor = null, minFrom = Infinity, minTo = Infinity;
-            participants.forEach(p => {
-                const diff1 = Math.abs(p.x - x1);
-                if (diff1 < minFrom) { minFrom = diff1; fromActor = p.name; }
-                const diff2 = Math.abs(p.x - x2);
-                if (diff2 < minTo) { minTo = diff2; toActor = p.name; }
-            });
-            // 自消息增强判定
+            // Self-message enhancement judgment
             if ((!fromActor || !toActor)) {
-                // 1. x1/x2最近原则，阈值放宽
+                // 1. x1/x2 nearest principle, relax threshold
                 let minSelf = Infinity, selfActor = null;
                 actorRanges.forEach(a => {
                     const dist = Math.abs(a.x - x1);
@@ -768,7 +757,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
                 if (minSelf < 50) {
                     fromActor = toActor = selfActor;
                 } else {
-                    // 2. y区间重叠原则
+                    // 2. y range overlap principle
                     actorRanges.forEach(a => {
                         if (y >= a.y1 && y <= a.y2) {
                             fromActor = toActor = a.name;
@@ -782,24 +771,24 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
         }
     });
 
-    // 5. 严格一一配对
+    // 5. Strict one-to-one pairing
     for (let i = 0; i < messageLines.length; i++) {
         messageLines[i].text = messageTexts[i] || '';
     }
 
-    // 5.5 自消息上下文兜底
+    // 5.5 Fallback for self-message context
     for (let i = 0; i < messageLines.length; i++) {
         let msg = messageLines[i];
         if (!msg.from || !msg.to) {
-            // 前一条
+            // Previous message
             if (i > 0 && messageLines[i-1].to && messageLines[i-1].to === messageLines[i-1].from) {
                 msg.from = msg.to = messageLines[i-1].to;
             }
-            // 后一条
+            // Next message
             else if (i < messageLines.length-1 && messageLines[i+1].from && messageLines[i+1].from === messageLines[i+1].to) {
                 msg.from = msg.to = messageLines[i+1].from;
             }
-            // 还不行，直接用前一条的to或后一条的from
+            // Still not, just use previous to or next from
             else if (i > 0 && messageLines[i-1].to) {
                 msg.from = msg.to = messageLines[i-1].to;
             } else if (i < messageLines.length-1 && messageLines[i+1].from) {
@@ -808,7 +797,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
         }
     }
 
-    // 6. 合并所有事件（消息、loop、激活）
+    // 6. Merge all events (message, loop, activation)
     let events = messageLines.map(m => ({type: 'message', y: m.y, data: m}));
     loops.forEach(loop => {
         events.push({type: 'loop_start', y: loop.yMin - 0.1, data: loop});
@@ -820,7 +809,7 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
     });
     events.sort((a, b) => a.y - b.y);
 
-    // 7. 生成Mermaid
+    // 7. Generate Mermaid
     let mermaidOutput = "sequenceDiagram\n";
     participants.forEach(p => {
         mermaidOutput += `  participant ${p.name}\n`;
@@ -926,7 +915,7 @@ function processNode(node) {
       case "H6": resultMd = (element.textContent.trim() ? `###### ${element.textContent.trim()}\n\n` : ""); break;
       case "UL": {
         let list = "";
-        // 判断是否为source相关ul
+        // Determine if it is a source-related ul
         const isSourceList = (
           (element.previousElementSibling && /source/i.test(element.previousElementSibling.textContent)) ||
           (element.parentElement && /source/i.test(element.parentElement.textContent)) ||
@@ -936,7 +925,7 @@ function processNode(node) {
           let liTxt = "";
           li.childNodes.forEach((c) => { try { liTxt += processNode(c); } catch (e) { console.error("Error processing child of LI:", c, e); liTxt += "[err]";}});
           if (isSourceList) {
-            liTxt = liTxt.trim().replace(/\n+/g, ' '); // source相关li合并为一行
+            liTxt = liTxt.trim().replace(/\n+/g, ' '); // Merge source-related li into one line
           } else {
             liTxt = liTxt.trim().replace(/\n\n$/, "").replace(/^\n\n/, "");
           }
@@ -948,7 +937,7 @@ function processNode(node) {
       case "OL": {
         let list = "";
         let i = 1;
-        // 判断是否为source相关ol
+        // Determine if it is a source-related ol
         const isSourceList = (
           (element.previousElementSibling && /source/i.test(element.previousElementSibling.textContent)) ||
           (element.parentElement && /source/i.test(element.parentElement.textContent)) ||
@@ -1035,13 +1024,13 @@ function processNode(node) {
 
         if (href && (href.startsWith('http') || href.startsWith('https') || href.startsWith('/') || href.startsWith('#') || href.startsWith('mailto:'))) {
           
-          // 处理代码引用链接格式
+          // Handle code reference link format
           const hashMatch = href.match(/#L(\d+)-L(\d+)$/);
           if (hashMatch) {
               const hashStartLine = hashMatch[1];
               const hashEndLine = hashMatch[2];
               
-              // 匹配"file.js 47-64"格式
+              // Match "file.js 47-64" format
               const textMatch = text.match(/^([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)$/);
               if (textMatch) {
                   const textFilename = textMatch[1];
@@ -1055,7 +1044,7 @@ function processNode(node) {
                       }
                   }
               } else {
-                  // 匹配"Sources: [file.js 47-64]"格式
+                  // Match "Sources: [file.js 47-64]" format
                   const sourcesMatch = text.match(/^Sources:\s+\[([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)\]$/);
                   if (sourcesMatch) {
                       const textFilename = sourcesMatch[1];
