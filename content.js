@@ -256,28 +256,85 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     if (parts.length < 3) return; 
     const fromClass = parts[1];
     const toClass = parts[2];
+    
+    // 获取关键属性
     const markerEndAttr = path.getAttribute('marker-end') || "";
+    const markerStartAttr = path.getAttribute('marker-start') || "";
+    const pathClass = path.getAttribute('class') || "";
+    
+    // 确定线条样式：实线或虚线
+    const isDashed = path.classList.contains('dashed-line') || 
+                     path.classList.contains('dotted-line') || 
+                     pathClass.includes('dashed') || 
+                     pathClass.includes('dotted');
+    const lineStyle = isDashed ? ".." : "--";
+    
     let relationshipType = "";
-    const lineStyle = path.classList.contains('dashed-line') ? ".." : 
-                      path.classList.contains('dotted-line') ? "." : "--";
-
-    if (markerEndAttr.includes('extensionEnd')) { 
-        relationshipType = `${toClass} <|${lineStyle} ${fromClass}`;
-    } else if (markerEndAttr.includes('compositionEnd')) { 
-        relationshipType = `${fromClass} *${lineStyle} ${toClass}`;
-    } else if (markerEndAttr.includes('aggregationEnd')) { 
-        relationshipType = `${fromClass} o${lineStyle} ${toClass}`;
-    } else if (markerEndAttr.includes('lollipopEnd')) { 
-        relationshipType = `${fromClass} ..|> ${toClass}`; 
-    } else if (markerEndAttr.includes('dependencyEnd')) { 
-        relationshipType = `${fromClass} ${lineStyle}> ${toClass}`;
-    } else { 
-        relationshipType = `${fromClass} ${lineStyle}> ${toClass}`; 
-        if (lineStyle === "--" && !markerEndAttr.includes('End')) { 
-             relationshipType = `${fromClass} -- ${toClass}`;
-        }
+    
+    // 继承关系: <|--（处理marker-start和marker-end两种情况）
+    if (markerStartAttr.includes('extensionStart') || markerStartAttr.includes('inheritance')) { 
+        // 正确表示继承关系：箭头从子类指向父类
+        relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
+    } 
+    else if (markerEndAttr.includes('extensionEnd') || markerEndAttr.includes('inheritance')) { 
+        // 正确表示继承关系：箭头从子类指向父类
+        relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
     }
-    const labelText = (labelElements[index] && labelElements[index].textContent) ? labelElements[index].textContent.trim() : "";
+    // 实现关系: ..|>
+    else if (markerStartAttr.includes('lollipopStart') || markerStartAttr.includes('implementStart')) {
+        relationshipType = `${fromClass} ..|> ${toClass}`;
+    }
+    else if (markerEndAttr.includes('implementEnd') || markerEndAttr.includes('lollipopEnd') || 
+             (markerEndAttr.includes('interfaceEnd') && isDashed)) {
+        relationshipType = `${fromClass} ..|> ${toClass}`;
+    }
+    // 组合关系: *--
+    else if (markerStartAttr.includes('compositionStart')) {
+        relationshipType = `${toClass} *${lineStyle} ${fromClass}`;
+    }
+    else if (markerEndAttr.includes('compositionEnd') || 
+             markerEndAttr.includes('diamondEnd') && markerEndAttr.includes('filled')) { 
+        relationshipType = `${fromClass} *${lineStyle} ${toClass}`;
+    } 
+    // 聚合关系: o--
+    else if (markerStartAttr.includes('aggregationStart')) {
+        relationshipType = `${toClass} o${lineStyle} ${fromClass}`;
+    }
+    else if (markerEndAttr.includes('aggregationEnd') || 
+             markerEndAttr.includes('diamondEnd') && !markerEndAttr.includes('filled')) { 
+        relationshipType = `${fromClass} o${lineStyle} ${toClass}`;
+    } 
+    // 依赖关系: ..>
+    else if (markerStartAttr.includes('dependencyStart') && isDashed) {
+        relationshipType = `${toClass} <.. ${fromClass}`;
+    }
+    else if ((markerEndAttr.includes('dependencyEnd') || markerEndAttr.includes('openEnd')) && isDashed) { 
+        relationshipType = `${fromClass} ..> ${toClass}`;
+    }
+    // 关联关系: -->
+    else if (markerStartAttr.includes('arrowStart') || markerStartAttr.includes('openStart')) {
+        relationshipType = `${toClass} <${lineStyle} ${fromClass}`;
+    }
+    else if (markerEndAttr.includes('arrowEnd') || markerEndAttr.includes('openEnd')) { 
+        relationshipType = `${fromClass} ${lineStyle}> ${toClass}`;
+    }
+    // 无箭头实线链接: --
+    else if (lineStyle === "--" && !markerEndAttr.includes('End') && !markerStartAttr.includes('Start')) { 
+        relationshipType = `${fromClass} -- ${toClass}`;
+    }
+    // 无箭头虚线链接: ..
+    else if (lineStyle === ".." && !markerEndAttr.includes('End') && !markerStartAttr.includes('Start')) {
+        relationshipType = `${fromClass} .. ${toClass}`;
+    }
+    // 默认关系
+    else {
+        relationshipType = `${fromClass} ${lineStyle} ${toClass}`;
+    }
+    
+    // 获取关系标签文本
+    const labelText = (labelElements[index] && labelElements[index].textContent) ? 
+                       labelElements[index].textContent.trim() : "";
+    
     if (relationshipType) {
         mermaidLines.push(`    ${relationshipType}${labelText ? ' : ' + labelText : ''}`);
     }
@@ -392,9 +449,30 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
             if (!isNaN(textY)) eventY = textY; // Use text's Y for sorting if it's more central to the message
         }
 
-
         const lineClass = lineEl.getAttribute('class') || "";
-        const arrowType = lineClass.includes('messageLine1') ? '-->' : '->'; // Dashed or Solid
+        
+        // 根据线条类和可能的标记确定箭头类型
+        let arrowType = '->>'; // 默认为带箭头的实线
+        
+        // 检测线条类型（虚线或实线）
+        const isDashed = lineClass.includes('messageLine1') || lineClass.includes('dashed');
+        
+        // 检测特殊标记（如果有）
+        const markerEnd = lineEl.getAttribute('marker-end') || '';
+        const hasX = markerEnd.includes('cross') || markerEnd.includes('x-mark');
+        const isOpen = markerEnd.includes('open') || markerEnd.includes('circle');
+        const isBidirectional = lineClass.includes('bi') || lineClass.includes('both');
+        
+        // 确定箭头类型
+        if (isBidirectional) {
+            arrowType = isDashed ? '<<-->>' : '<<->>';
+        } else if (hasX) {
+            arrowType = isDashed ? '--x' : '-x';
+        } else if (isOpen) {
+            arrowType = isDashed ? '--)' : '-)';
+        } else {
+            arrowType = isDashed ? '-->>' : '->>';
+        }
 
         if (fromActorName && toActorName) {
             events.push({
