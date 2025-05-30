@@ -124,12 +124,47 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     let textContent = "";
     
     // Try multiple ways to get node text
-    const textFo = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p, .label foreignObject p, .label p');
-    if (textFo) {
-      textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
-    } else {
+    // More specific selector for <p> tags that might contain <br>
+    const pElementForText = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p'); 
+    
+    if (pElementForText) {
+        let rawParts = [];
+        // Iterate over child nodes of the <p> element to correctly handle <br>
+        pElementForText.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+                rawParts.push(child.textContent);
+            } else if (child.nodeName.toUpperCase() === 'BR') {
+                rawParts.push('<br>');
+            } else if (child.nodeType === Node.ELEMENT_NODE) { 
+                // For other nested elements within p, take their textContent.
+                rawParts.push(child.textContent || ''); 
+            }
+        });
+        textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
+    }
+    
+    // Fallback if the primary method didn't yield text
+    if (!textContent.trim()) { 
+        const textFo = nodeEl.querySelector('.label foreignObject p, .label p'); // Broader <p> selectors
+        if (textFo) {
+          let rawParts = [];
+          textFo.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) { rawParts.push(child.textContent); }
+            else if (child.nodeName.toUpperCase() === 'BR') { rawParts.push('<br>'); }
+            else if (child.nodeType === Node.ELEMENT_NODE) { rawParts.push(child.textContent || ''); }
+          });
+          textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
+          
+          // If BR processing results in empty but original textContent was not, use original (trimmed)
+          if (!textContent.trim() && textFo.textContent && textFo.textContent.trim()) {
+              textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
+          }
+        }
+    }
+    
+    if (!textContent.trim()) { // Further fallback to <text> elements
       const textElement = nodeEl.querySelector('text, .label text');
-      if (textElement) {
+      if (textElement && textElement.textContent) {
         textContent = textElement.textContent.trim().replace(/"/g, '#quot;');
       }
     }
@@ -322,7 +357,9 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       if (text) {
         labelInfo[`${x},${y}`] = {
           text: text,
-          id: labelGroup.id || ""
+          id: labelGroup.id || "",
+          x: x,  // Add x coordinate for reference
+          y: y   // Add y coordinate for reference
         };
         
         if (labelGroup.id) {
@@ -349,12 +386,33 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     
     if (pathId.startsWith("L_") || pathId.startsWith("FL_")) {
       const idPrefix = pathId.startsWith("L_") ? "L_" : "FL_";
-      const parts = pathId.substring(idPrefix.length).split('_'); 
-      if (parts.length >= 2) {
-        sourceName = parts[0];
-        targetName = parts[1]; 
-        sourceNode = Object.values(nodes).find(n => n.mermaidId === sourceName);
-        targetNode = Object.values(nodes).find(n => n.mermaidId === targetName);
+      let remainingPathId = pathId.substring(idPrefix.length);
+      
+      let baseIdForSplit = remainingPathId;
+      // Attempt to remove a trailing _<number> if it exists (edge index)
+      const edgeIndexMatch = remainingPathId.match(/^(.*?)_(\d+)$/);
+      if (edgeIndexMatch && edgeIndexMatch[1]) { // Ensure capture group 1 exists
+          baseIdForSplit = edgeIndexMatch[1]; 
+      }
+
+      const idParts = baseIdForSplit.split('_');
+
+      // Iterate through possible split points to find source and target
+      // Handles cases like "node_part1_node_part2" splitting into "node_part1" and "node_part2"
+      for (let i = 1; i < idParts.length; i++) {
+        const potentialSourceName = idParts.slice(0, i).join('_');
+        const potentialTargetName = idParts.slice(i).join('_');
+        
+        const foundSourceNode = Object.values(nodes).find(n => n.mermaidId === potentialSourceName);
+        const foundTargetNode = Object.values(nodes).find(n => n.mermaidId === potentialTargetName);
+
+        if (foundSourceNode && foundTargetNode) {
+          sourceNode = foundSourceNode;
+          targetNode = foundTargetNode;
+          sourceName = potentialSourceName; // Used for label lookup
+          targetName = potentialTargetName; // Used for label lookup
+          break; // Found a valid pair
+        }
       }
     }
     
@@ -408,30 +466,33 @@ function convertFlowchartSvgToMermaidText(svgElement) {
             closestLabel = labelInfo[pos];
           }
         }
-        // Relax threshold to 200
-        if (closestLabel && closestDist < 200) {
+        // Use a stricter threshold to avoid incorrect label assignment
+        if (closestLabel && closestDist < 50) { // Reduced from 200 to 50
           label = closestLabel.text;
-        }
-      }
-      // Fallback: if label is still null, globally find the nearest label again
-      if (!label && midX !== null && midY !== null) {
-        let minDist = Infinity, bestLabel = null;
-        for (const pos in labelInfo) {
-          const [x, y] = pos.split(',').map(parseFloat);
-          const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
-          if (dist < minDist) {
-            minDist = dist;
-            bestLabel = labelInfo[pos];
-          }
-        }
-        if (bestLabel && minDist < 250) { // Relax a bit more
-          label = bestLabel.text;
+          // Mark this label as used to prevent it from being assigned to other edges
+          delete labelInfo[`${closestLabel.x},${closestLabel.y}`];
         }
       }
     }
     
-    // Build edge text
-    const labelPart = label ? `|${label}|` : "";
+    // Helper function to properly escape labels for Mermaid
+    function escapeLabelForMermaid(labelText) {
+      if (!labelText) return "";
+      
+      // Check if label contains special characters that require quoting
+      const needsQuotes = /[()[\]{}<>|&!@#$%^*+=~`"']/.test(labelText);
+      
+      if (needsQuotes) {
+        // Escape any existing double quotes and wrap in double quotes
+        return `"${labelText.replace(/"/g, '\\"')}"`;
+      }
+      
+      return labelText;
+    }
+    
+    // Build edge text with proper label escaping
+    const escapedLabel = escapeLabelForMermaid(label);
+    const labelPart = escapedLabel ? `|${escapedLabel}|` : "";
     const edgeText = `${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`;
     
     // Determine edge type: inside subgraph, between subgraphs, or normal edge
@@ -1006,66 +1067,88 @@ function processNode(node) {
       }
       case "A": {
         const href = element.getAttribute("href");
-        let text = "";
+        let initialTextFromNodes = ""; // Collect raw text from children first
         element.childNodes.forEach(c => { 
           try { 
-            text += processNode(c); 
+            initialTextFromNodes += processNode(c); 
           } catch (e) { 
             console.error("Error processing child of A:", c, e); 
-            text += "[err]";
+            initialTextFromNodes += "[err]";
           }
         });
-        text = text.trim();
+        let text = initialTextFromNodes.trim(); // This is the base text for further processing
 
-        if (!text && element.querySelector('img')) {
+        if (!text && element.querySelector('img')) { // Handle img alt text if link content is empty
             text = element.querySelector('img').alt || 'image';
         }
-        text = text || (href ? href : ""); // Fallback to href itself if text is still empty
+        // `text` is now the initial display text, possibly from content or image alt.
+        // `initialTextFromNodes` keeps the original structure for context like "Sources: [...]".
 
         if (href && (href.startsWith('http') || href.startsWith('https') || href.startsWith('/') || href.startsWith('#') || href.startsWith('mailto:'))) {
           
-          // Handle code reference link format
-          const hashMatch = href.match(/#L(\d+)-L(\d+)$/);
-          if (hashMatch) {
-              const hashStartLine = hashMatch[1];
-              const hashEndLine = hashMatch[2];
-              
-              // Match "file.js 47-64" format
-              const textMatch = text.match(/^([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)$/);
-              if (textMatch) {
-                  const textFilename = textMatch[1];
-                  const textStartLine = textMatch[2];
-                  const textEndLine = textMatch[3];
+          let finalLinkDisplayText = text; // Start with the current text, may be overwritten by line logic
 
-                  if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
-                      const pathPart = href.substring(0, href.indexOf('#'));
-                      if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
-                          text = `${textFilename} L${hashStartLine}-L${hashEndLine}`;
-                      }
-                  }
-              } else {
-                  // Match "Sources: [file.js 47-64]" format
-                  const sourcesMatch = text.match(/^Sources:\s+\[([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)\]$/);
-                  if (sourcesMatch) {
-                      const textFilename = sourcesMatch[1];
-                      const textStartLine = sourcesMatch[2];
-                      const textEndLine = sourcesMatch[3];
-                      
-                      if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
-                          const pathPart = href.substring(0, href.indexOf('#'));
-                          if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
-                              text = `Sources: [${textFilename} L${hashStartLine}-L${hashEndLine}]`;
-                          }
-                      }
-                  }
-              }
+          const lineInfoMatch = href.match(/#L(\d+)(?:-L(\d+))?$/);
+
+          if (lineInfoMatch) {
+            const pathPart = href.substring(0, href.indexOf('#'));
+            let filenameFromPath = pathPart.substring(pathPart.lastIndexOf('/') + 1) || "link"; // Default filename
+
+            const startLine = lineInfoMatch[1];
+            const endLine = lineInfoMatch[2]; // This is the number after -L, or undefined
+
+            let displayFilename = filenameFromPath; // Start with filename from path
+
+            const trimmedInitialText = initialTextFromNodes.trim(); // Trim for reliable prefix/suffix checks
+            let textToParseForFilename = trimmedInitialText; 
+
+            const isSourcesContext = trimmedInitialText.startsWith("Sources: [") && trimmedInitialText.endsWith("]");
+
+            if (isSourcesContext) {
+                const sourcesContentMatch = trimmedInitialText.match(/^Sources:\s+\[(.*)\]$/);
+                if (sourcesContentMatch && sourcesContentMatch[1]) {
+                    textToParseForFilename = sourcesContentMatch[1].trim(); // Content inside "Sources: [...]"
+                }
+            }
+
+            // Extract filename hint from (potentially sources-stripped) textToParseForFilename
+            // This regex targets the first part that looks like a filename.
+            const filenameHintMatch = textToParseForFilename.match(/^[\w\/\.-]+(?:\.\w+)?/);
+            if (filenameHintMatch && filenameHintMatch[0]) { // Use filenameHintMatch[0] for the matched string
+                // Verify this extracted filename by checking if it's part of the href's path
+                if (pathPart.includes(filenameHintMatch[0])) {
+                    displayFilename = filenameHintMatch[0];
+                }
+            }
+            
+            let lineRefText;
+            if (endLine && endLine !== startLine) { // Range like L10-L20
+              lineRefText = `L${startLine}-L${endLine}`;
+            } else { // Single line like L10, or L10-L10 treated as L10
+              lineRefText = `L${startLine}`;
+            }
+
+            let constructedText = `${displayFilename} ${lineRefText}`;
+
+            if (isSourcesContext) {
+              finalLinkDisplayText = `Sources: [${constructedText}]`;
+            } else {
+              // If not a "Sources:" link, use the newly constructed clean text
+              finalLinkDisplayText = constructedText;
+            }
           }
+          
+          // Fallback: if finalLinkDisplayText is empty (e.g. original text was empty and no lineInfoMatch)
+          // or if it became empty after processing, use href.
+          text = finalLinkDisplayText.trim() || (href ? href : ""); // Ensure text is not empty if href exists
           
           resultMd = `[${text}](${href})`;
           if (window.getComputedStyle(element).display !== "inline") {
               resultMd += "\n\n";
           }
         } else { 
+          // Non-http/s/... link, or no href. Fallback text if empty.
+          text = text.trim() || (href ? href : ""); 
           resultMd = text; 
           if (window.getComputedStyle(element).display !== "inline" && text.trim()) {
               resultMd += "\n\n";
