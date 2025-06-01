@@ -746,26 +746,34 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
                 }
             }
             y = (y1 + y2) / 2;
-            // Self-message enhancement judgment
-            if ((!fromActor || !toActor)) {
-                // 1. x1/x2 nearest principle, relax threshold
-                let minSelf = Infinity, selfActor = null;
+
+            // Determine sender and receiver
+            let fromActor = null;
+            let toActor = null;
+            actorRanges.forEach(a => {
+                if (Math.abs(a.x - x1) < 5) fromActor = a.name;
+                if (Math.abs(a.x - x2) < 5) toActor = a.name;
+            });
+
+            // Self-message enhancement fallback
+            if (!fromActor || !toActor) {
+                let minDist = Infinity, selfActor = null;
                 actorRanges.forEach(a => {
                     const dist = Math.abs(a.x - x1);
-                    if (dist < minSelf) { minSelf = dist; selfActor = a.name; }
+                    if (dist < minDist) { minDist = dist; selfActor = a.name; }
                 });
-                if (minSelf < 50) {
+                if (minDist < 50) {
                     fromActor = toActor = selfActor;
-                } else {
-                    // 2. y range overlap principle
-                    actorRanges.forEach(a => {
-                        if (y >= a.y1 && y <= a.y2) {
-                            fromActor = toActor = a.name;
-                        }
-                    });
                 }
             }
-            messageLines.push({from: fromActor, to: toActor, y, arrow: (el.getAttribute('class')||"").includes('messageLine1') ? '-->>' : '->>', lineEl: el});
+
+            messageLines.push({
+                from: fromActor,
+                to: toActor,
+                y,
+                arrow: (el.getAttribute('class') || "").includes('messageLine1') ? '-->>' : '->>',
+                lineEl: el
+            });
         } else if (el.matches('text.messageText')) {
             messageTexts.push(el.textContent.trim());
         }
