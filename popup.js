@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const convertBtn = document.getElementById('convertBtn');
   const batchDownloadBtn = document.getElementById('batchDownloadBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
   const status = document.getElementById('status');
   let currentMarkdown = '';
   let currentTitle = '';
@@ -8,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let allPages = [];
   let baseUrl = '';
   let convertedPages = []; // Store all converted page content
+  let isCancelled = false; // Flag to control cancellation
 
   // Convert button click event - now also downloads
   convertBtn.addEventListener('click', async () => {
@@ -61,6 +63,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      // Reset cancellation flag and show cancel button
+      isCancelled = false;
+      showCancelButton(true);
+      disableBatchButton(true);
+
       showStatus('Extracting all page links...', 'info');
       
       // Extract all links first
@@ -82,8 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Process all pages - collect conversion results
         await processAllPages(tab.id, folderName);
         
-        // Download all collected content at once
-        if (convertedPages.length > 0) {
+        // Download all collected content at once if not cancelled
+        if (!isCancelled && convertedPages.length > 0) {
           await downloadAllPagesAsZip(folderName);
         }
       } else {
@@ -91,7 +98,19 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (error) {
       showStatus('An error occurred: ' + error.message, 'error');
+    } finally {
+      // Hide cancel button and re-enable batch button
+      showCancelButton(false);
+      disableBatchButton(false);
     }
+  });
+
+  // Cancel button click event
+  cancelBtn.addEventListener('click', () => {
+    isCancelled = true;
+    showStatus('Cancelling batch operation...', 'info');
+    showCancelButton(false);
+    disableBatchButton(false);
   });
 
   // Process all pages - collect conversion results but don't download immediately
@@ -103,6 +122,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentPageUrl = allPages.find(page => page.selected)?.url || "";
     
     for (const page of allPages) {
+      // Check if operation was cancelled
+      if (isCancelled) {
+        showStatus(`Operation cancelled. Processed: ${processedCount}, Failed: ${errorCount}`, 'info');
+        // Return to original page
+        if (currentPageUrl) {
+          await chrome.tabs.update(tabId, { url: currentPageUrl });
+        }
+        return;
+      }
+
       try {
         showStatus(`Processing ${processedCount + 1}/${allPages.length}: ${page.title}`, 'info');
         
@@ -111,6 +140,15 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Wait for page to load
         await new Promise(resolve => setTimeout(resolve, 2000)); // Increase waiting time to ensure page loads
+        
+        // Check again if cancelled during wait
+        if (isCancelled) {
+          showStatus(`Operation cancelled. Processed: ${processedCount}, Failed: ${errorCount}`, 'info');
+          if (currentPageUrl) {
+            await chrome.tabs.update(tabId, { url: currentPageUrl });
+          }
+          return;
+        }
         
         // Convert page content
         const convertResponse = await chrome.tabs.sendMessage(tabId, { action: 'convertToMarkdown' });
@@ -138,7 +176,9 @@ document.addEventListener('DOMContentLoaded', () => {
       await chrome.tabs.update(tabId, { url: currentPageUrl });
     }
     
-    showStatus(`Batch conversion complete! Success: ${processedCount}, Failed: ${errorCount}, Preparing download...`, 'success');
+    if (!isCancelled) {
+      showStatus(`Batch conversion complete! Success: ${processedCount}, Failed: ${errorCount}, Preparing download...`, 'success');
+    }
   }
   
   // Package all pages into a ZIP file for download
@@ -188,6 +228,16 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       showStatus('Error creating ZIP file: ' + error.message, 'error');
     }
+  }
+
+  // Show or hide cancel button
+  function showCancelButton(show) {
+    cancelBtn.style.display = show ? 'block' : 'none';
+  }
+
+  // Enable or disable batch button
+  function disableBatchButton(disable) {
+    batchDownloadBtn.disabled = disable;
   }
 
   // Display status information

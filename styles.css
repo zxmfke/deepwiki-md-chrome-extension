@@ -69,6 +69,15 @@ button.batch:hover {
   background-color: #0b7dda;
 }
 
+button.cancel {
+  background-color: #f44336;
+  margin-top: 5px;
+}
+
+button.cancel:hover {
+  background-color: #d32f2f;
+}
+
 #status {
   margin-top: 8px;
   padding: 8px;
