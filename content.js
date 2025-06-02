@@ -119,20 +119,67 @@ function convertFlowchartSvgToMermaidText(svgElement) {
   // Process nodes and collect position information
   const nodePositions = {};
   const nodeElements = svgElement.querySelectorAll('g.node');
+  console.log("Found flowchart nodes:", nodeElements.length); // DEBUG
   nodeElements.forEach(nodeEl => {
     const svgId = nodeEl.id;
+    console.log("Processing node:", svgId); // DEBUG
     let textContent = "";
     
     // Try multiple ways to get node text
-    const textFo = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p, .label foreignObject p, .label p');
+    // More specific selector for <p> tags that might contain <br>
+    const pElementForText = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p'); 
+    
+    if (pElementForText) {
+        let rawParts = [];
+        // Iterate over child nodes of the <p> element to correctly handle <br>
+        pElementForText.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) {
+                rawParts.push(child.textContent);
+            } else if (child.nodeName.toUpperCase() === 'BR') {
+                rawParts.push('<br>');
+            } else if (child.nodeType === Node.ELEMENT_NODE) { 
+                // For other nested elements within p, take their textContent.
+                rawParts.push(child.textContent || ''); 
+            }
+        });
+        textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
+    }
+    
+    // Fallback if the primary method didn't yield text
+    if (!textContent.trim()) { 
+        const textFo = nodeEl.querySelector('.label foreignObject p, .label p'); // Broader <p> selectors
     if (textFo) {
+          let rawParts = [];
+          textFo.childNodes.forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE) { rawParts.push(child.textContent); }
+            else if (child.nodeName.toUpperCase() === 'BR') { rawParts.push('<br>'); }
+            else if (child.nodeType === Node.ELEMENT_NODE) { rawParts.push(child.textContent || ''); }
+          });
+          textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
+          
+          // If BR processing results in empty but original textContent was not, use original (trimmed)
+          if (!textContent.trim() && textFo.textContent && textFo.textContent.trim()) {
       textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
-    } else {
+          }
+        }
+    }
+    
+    // Try more fallback selectors for newer mermaid versions
+    if (!textContent.trim()) {
+        const nodeLabel = nodeEl.querySelector('.nodeLabel, .label, foreignObject span, foreignObject div');
+        if (nodeLabel && nodeLabel.textContent) {
+            textContent = nodeLabel.textContent.trim().replace(/"/g, '#quot;');
+        }
+    }
+    
+    if (!textContent.trim()) { // Further fallback to <text> elements
       const textElement = nodeEl.querySelector('text, .label text');
-      if (textElement) {
+      if (textElement && textElement.textContent) {
         textContent = textElement.textContent.trim().replace(/"/g, '#quot;');
       }
     }
+    
+    console.log("Node text content:", textContent); // DEBUG
     
     // Create node ID
     let mermaidId = svgId.replace(/^flowchart-/, '');
@@ -322,7 +369,9 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       if (text) {
         labelInfo[`${x},${y}`] = {
           text: text,
-          id: labelGroup.id || ""
+          id: labelGroup.id || "",
+          x: x,  // Add x coordinate for reference
+          y: y   // Add y coordinate for reference
         };
         
         if (labelGroup.id) {
@@ -349,12 +398,33 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     
     if (pathId.startsWith("L_") || pathId.startsWith("FL_")) {
       const idPrefix = pathId.startsWith("L_") ? "L_" : "FL_";
-      const parts = pathId.substring(idPrefix.length).split('_'); 
-      if (parts.length >= 2) {
-        sourceName = parts[0];
-        targetName = parts[1]; 
-        sourceNode = Object.values(nodes).find(n => n.mermaidId === sourceName);
-        targetNode = Object.values(nodes).find(n => n.mermaidId === targetName);
+      let remainingPathId = pathId.substring(idPrefix.length);
+      
+      let baseIdForSplit = remainingPathId;
+      // Attempt to remove a trailing _<number> if it exists (edge index)
+      const edgeIndexMatch = remainingPathId.match(/^(.*?)_(\d+)$/);
+      if (edgeIndexMatch && edgeIndexMatch[1]) { // Ensure capture group 1 exists
+          baseIdForSplit = edgeIndexMatch[1]; 
+      }
+
+      const idParts = baseIdForSplit.split('_');
+
+      // Iterate through possible split points to find source and target
+      // Handles cases like "node_part1_node_part2" splitting into "node_part1" and "node_part2"
+      for (let i = 1; i < idParts.length; i++) {
+        const potentialSourceName = idParts.slice(0, i).join('_');
+        const potentialTargetName = idParts.slice(i).join('_');
+        
+        const foundSourceNode = Object.values(nodes).find(n => n.mermaidId === potentialSourceName);
+        const foundTargetNode = Object.values(nodes).find(n => n.mermaidId === potentialTargetName);
+
+        if (foundSourceNode && foundTargetNode) {
+          sourceNode = foundSourceNode;
+          targetNode = foundTargetNode;
+          sourceName = potentialSourceName; // Used for label lookup
+          targetName = potentialTargetName; // Used for label lookup
+          break; // Found a valid pair
+        }
       }
     }
     
@@ -408,30 +478,33 @@ function convertFlowchartSvgToMermaidText(svgElement) {
             closestLabel = labelInfo[pos];
           }
         }
-        // Relax threshold to 200
-        if (closestLabel && closestDist < 200) {
+        // Use a stricter threshold to avoid incorrect label assignment
+        if (closestLabel && closestDist < 50) { // Reduced from 200 to 50
           label = closestLabel.text;
-        }
-      }
-      // Fallback: if label is still null, globally find the nearest label again
-      if (!label && midX !== null && midY !== null) {
-        let minDist = Infinity, bestLabel = null;
-        for (const pos in labelInfo) {
-          const [x, y] = pos.split(',').map(parseFloat);
-          const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
-          if (dist < minDist) {
-            minDist = dist;
-            bestLabel = labelInfo[pos];
-          }
-        }
-        if (bestLabel && minDist < 250) { // Relax a bit more
-          label = bestLabel.text;
+          // Mark this label as used to prevent it from being assigned to other edges
+          delete labelInfo[`${closestLabel.x},${closestLabel.y}`];
         }
       }
     }
     
-    // Build edge text
-    const labelPart = label ? `|${label}|` : "";
+    // Helper function to properly escape labels for Mermaid
+    function escapeLabelForMermaid(labelText) {
+      if (!labelText) return "";
+      
+      // Check if label contains special characters that require quoting
+      const needsQuotes = /[()[\]{}<>|&!@#$%^*+=~`"']/.test(labelText);
+      
+      if (needsQuotes) {
+        // Escape any existing double quotes and wrap in double quotes
+        return `"${labelText.replace(/"/g, '\\"')}"`;
+      }
+      
+      return labelText;
+    }
+    
+    // Build edge text with proper label escaping
+    const escapedLabel = escapeLabelForMermaid(label);
+    const labelPart = escapedLabel ? `|${escapedLabel}|` : "";
     const edgeText = `${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`;
     
     // Determine edge type: inside subgraph, between subgraphs, or normal edge
@@ -503,6 +576,8 @@ function convertFlowchartSvgToMermaidText(svgElement) {
   }
   
   if (Object.keys(nodes).length === 0 && Object.keys(clusters).length === 0) return null;
+  console.log("Flowchart conversion completed. Total nodes:", Object.keys(nodes).length, "Total clusters:", Object.keys(clusters).length); // DEBUG
+  console.log("Generated mermaid code:", mermaidCode.substring(0, 200) + "..."); // DEBUG
   return '```mermaid\n' + mermaidCode.trim() + '\n```';
 }
 
@@ -512,14 +587,45 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
   const mermaidLines = ['classDiagram'];
   const classData = {}; 
 
-  svgElement.querySelectorAll('g.node.default').forEach(node => {
+  // 1. Parse Classes and their geometric information
+  svgElement.querySelectorAll('g.node.default[id^="classId-"]').forEach(node => {
     const classIdSvg = node.getAttribute('id'); 
     if (!classIdSvg) return;
+    
     const classNameMatch = classIdSvg.match(/^classId-([^-]+(?:-[^-]+)*)-(\d+)$/);
     if (!classNameMatch) return;
     const className = classNameMatch[1];
+
+    let cx = 0, cy = 0, halfWidth = 0, halfHeight = 0;
+    const transform = node.getAttribute('transform');
+    if (transform) {
+      const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      if (match) {
+        cx = parseFloat(match[1]);
+        cy = parseFloat(match[2]);
+      }
+    }
+    const pathForBounds = node.querySelector('g.basic.label-container > path[d^="M-"]');
+    if (pathForBounds) {
+      const d = pathForBounds.getAttribute('d');
+      const dMatch = d.match(/M-([0-9.]+)\s+-([0-9.]+)/); // Extracts W and H from M-W -H
+      if (dMatch && dMatch.length >= 3) {
+        halfWidth = parseFloat(dMatch[1]);
+        halfHeight = parseFloat(dMatch[2]);
+      }
+    }
+
     if (!classData[className]) {
-        classData[className] = { stereotype: "", members: [], methods: [] };
+        classData[className] = { 
+            stereotype: "", 
+            members: [], 
+            methods: [], 
+            svgId: classIdSvg, 
+            x: cx, 
+            y: cy, 
+            width: halfWidth * 2, 
+            height: halfHeight * 2 
+        };
     }
     const stereotypeElem = node.querySelector('g.annotation-group.text foreignObject span.nodeLabel p, g.annotation-group.text foreignObject div p');
     if (stereotypeElem && stereotypeElem.textContent.trim()) {
@@ -535,6 +641,239 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     });
   });
 
+  // 2. Parse Notes
+  const notes = [];
+  
+  // Method 1: Find traditional rect.note and text.noteText
+  svgElement.querySelectorAll('g').forEach(g => {
+    const noteRect = g.querySelector('rect.note');
+    const noteText = g.querySelector('text.noteText');
+    
+    if (noteRect && noteText) {
+      const text = noteText.textContent.trim();
+      const x = parseFloat(noteRect.getAttribute('x'));
+      const y = parseFloat(noteRect.getAttribute('y'));
+      const width = parseFloat(noteRect.getAttribute('width'));
+      const height = parseFloat(noteRect.getAttribute('height'));
+      
+      if (text && !isNaN(x) && !isNaN(y)) {
+        notes.push({
+          text: text,
+          x: x,
+          y: y,
+          width: width || 0,
+          height: height || 0,
+          id: g.id || `note_${notes.length}`
+        });
+      }
+    }
+  });
+  
+  // Method 2: Find other note formats (like node undefined type)
+  svgElement.querySelectorAll('g.node.undefined, g[id^="note"]').forEach(g => {
+    // Check if it's a note (by background color, id or other features)
+    const hasNoteBackground = g.querySelector('path[fill="#fff5ad"], path[style*="#fff5ad"], path[style*="fill:#fff5ad"]');
+    const isNoteId = g.id && g.id.includes('note');
+    
+    if (hasNoteBackground || isNoteId) {
+      // Try to get text from foreignObject
+      let text = '';
+      const foreignObject = g.querySelector('foreignObject');
+      if (foreignObject) {
+        const textEl = foreignObject.querySelector('p, span.nodeLabel, .nodeLabel');
+        if (textEl) {
+          text = textEl.textContent.trim();
+        }
+      }
+      
+      // If no text found, try other selectors
+      if (!text) {
+        const textEl = g.querySelector('text, .label text, tspan');
+        if (textEl) {
+          text = textEl.textContent.trim();
+        }
+      }
+      
+      if (text) {
+        // Get position information
+        const transform = g.getAttribute('transform');
+        let x = 0, y = 0;
+        if (transform) {
+          const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+          if (match) {
+            x = parseFloat(match[1]);
+            y = parseFloat(match[2]);
+          }
+        }
+        
+        // Check if this note has already been added
+        const existingNote = notes.find(n => n.text === text && Math.abs(n.x - x) < 10 && Math.abs(n.y - y) < 10);
+        if (!existingNote) {
+          notes.push({
+            text: text,
+            x: x,
+            y: y,
+            width: 0,
+            height: 0,
+            id: g.id || `note_${notes.length}`
+          });
+        }
+      }
+    }
+  });
+
+  // 3. Parse Note-to-Class Connections
+  const noteTargets = {}; // Maps note.id to target className
+  const connectionThreshold = 50; // Increase connection threshold
+
+  // Find note connection paths, support multiple path types
+  const noteConnections = [
+    ...svgElement.querySelectorAll('path.relation.edge-pattern-dotted'),
+    ...svgElement.querySelectorAll('path[id^="edgeNote"]'),
+    ...svgElement.querySelectorAll('path.edge-thickness-normal.edge-pattern-dotted')
+  ];
+  
+  noteConnections.forEach(pathEl => {
+    const dAttr = pathEl.getAttribute('d');
+    if (!dAttr) return;
+
+    // Improved path parsing, support Bezier curves
+    const pathPoints = [];
+    
+    // Parse various path commands
+    const commands = dAttr.match(/[A-Za-z][^A-Za-z]*/g) || [];
+    let currentX = 0, currentY = 0;
+    
+    commands.forEach(cmd => {
+      const parts = cmd.match(/[A-Za-z]|[-+]?\d*\.?\d+/g) || [];
+      const type = parts[0];
+      const coords = parts.slice(1).map(Number);
+      
+      switch(type.toUpperCase()) {
+        case 'M': // Move to
+          if (coords.length >= 2) {
+            currentX = coords[0];
+            currentY = coords[1];
+            pathPoints.push({x: currentX, y: currentY});
+          }
+          break;
+        case 'L': // Line to
+          for (let i = 0; i < coords.length; i += 2) {
+            if (coords[i+1] !== undefined) {
+              currentX = coords[i];
+              currentY = coords[i+1];
+              pathPoints.push({x: currentX, y: currentY});
+            }
+          }
+          break;
+        case 'C': // Cubic bezier
+          for (let i = 0; i < coords.length; i += 6) {
+            if (coords[i+5] !== undefined) {
+              // Get end point coordinates
+              currentX = coords[i+4];
+              currentY = coords[i+5];
+              pathPoints.push({x: currentX, y: currentY});
+            }
+          }
+          break;
+        case 'Q': // Quadratic bezier
+          for (let i = 0; i < coords.length; i += 4) {
+            if (coords[i+3] !== undefined) {
+              currentX = coords[i+2];
+              currentY = coords[i+3];
+              pathPoints.push({x: currentX, y: currentY});
+            }
+          }
+          break;
+      }
+    });
+
+    if (pathPoints.length < 2) return;
+    
+    const pathStart = pathPoints[0];
+    const pathEnd = pathPoints[pathPoints.length - 1];
+
+    // Find the closest note to path start point
+    let closestNote = null;
+    let minDistToNote = Infinity;
+    notes.forEach(note => {
+      const dist = Math.sqrt(Math.pow(note.x - pathStart.x, 2) + Math.pow(note.y - pathStart.y, 2));
+      if (dist < minDistToNote) {
+        minDistToNote = dist;
+        closestNote = note;
+      }
+    });
+
+    // Find the closest class to path end point
+    let targetClassName = null;
+    let minDistToClass = Infinity;
+    for (const currentClassName in classData) {
+      const classInfo = classData[currentClassName];
+      const classCenterX = classInfo.x;
+      const classCenterY = classInfo.y;
+      const classWidth = classInfo.width || 200; // Default width
+      const classHeight = classInfo.height || 200; // Default height
+
+      // Calculate distance from path end to class center
+      const distToCenter = Math.sqrt(
+        Math.pow(pathEnd.x - classCenterX, 2) + 
+        Math.pow(pathEnd.y - classCenterY, 2)
+      );
+
+      // Also calculate distance to class boundary
+      const classLeft = classCenterX - classWidth/2;
+      const classRight = classCenterX + classWidth/2;
+      const classTop = classCenterY - classHeight/2;
+      const classBottom = classCenterY + classHeight/2;
+      
+      const dx = Math.max(classLeft - pathEnd.x, 0, pathEnd.x - classRight);
+      const dy = Math.max(classTop - pathEnd.y, 0, pathEnd.y - classBottom);
+      const distToEdge = Math.sqrt(dx*dx + dy*dy);
+
+      // Use the smaller distance as the judgment criterion
+      const finalDist = Math.min(distToCenter, distToEdge + classWidth/4);
+      
+      if (finalDist < minDistToClass) {
+        minDistToClass = finalDist;
+        targetClassName = currentClassName;
+      }
+    }
+    
+    // Relax connection conditions
+    if (closestNote && targetClassName && 
+        minDistToNote < connectionThreshold && 
+        minDistToClass < connectionThreshold * 2) {
+      
+      const existing = noteTargets[closestNote.id];
+      const currentScore = minDistToNote + minDistToClass;
+      
+      if (!existing || currentScore < existing.score) {
+        noteTargets[closestNote.id] = { 
+          name: targetClassName, 
+          score: currentScore,
+          noteDistance: minDistToNote,
+          classDistance: minDistToClass
+        };
+      }
+    }
+  });
+
+  // 4. Add Note Definitions to Mermaid output
+  const noteMermaidLines = [];
+  notes.forEach(note => {
+    const targetInfo = noteTargets[note.id];
+    if (targetInfo && targetInfo.name) {
+      noteMermaidLines.push(`    note for ${targetInfo.name} "${note.text}"`);
+    } else {
+      noteMermaidLines.push(`    note "${note.text}"`);
+    }
+  });
+  // Insert notes after 'classDiagram' line
+  if (noteMermaidLines.length > 0) {
+    mermaidLines.splice(1, 0, ...noteMermaidLines);
+  }
+  
+  // 5. Add Class Definitions
   for (const className in classData) {
     const data = classData[className];
     if (data.stereotype) {
@@ -572,47 +911,69 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     
     let relationshipType = "";
     
-    // Inheritance relation: <|-- (handle both marker-start and marker-end cases)
-    if (markerStartAttr.includes('extensionStart') || markerStartAttr.includes('inheritance')) { 
-        // Correctly represent inheritance relation: arrow from subclass to superclass
-        relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
+    // Inheritance relation: <|-- or --|> (corrected inheritance relationship judgment)
+    if (markerStartAttr.includes('extensionStart')) { 
+        // marker-start has extension, arrow at start point, means: toClass inherits fromClass
+        if (isDashed) {
+            // Dashed inheritance (implementation relationship): fromClass <|.. toClass
+            relationshipType = `${fromClass} <|.. ${toClass}`;
+        } else {
+            // Solid inheritance: fromClass <|-- toClass
+            relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
+        }
     } 
-    else if (markerEndAttr.includes('extensionEnd') || markerEndAttr.includes('inheritance')) { 
-        // Correctly represent inheritance relation: arrow from subclass to superclass
-        relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
+    else if (markerEndAttr.includes('extensionEnd')) { 
+        // marker-end has extension, arrow at end point, means: fromClass inherits toClass
+        if (isDashed) {
+            // Dashed inheritance (implementation relationship): toClass <|.. fromClass
+            relationshipType = `${toClass} <|.. ${fromClass}`;
+        } else {
+            // Solid inheritance: toClass <|-- fromClass
+            relationshipType = `${toClass} <|${lineStyle} ${fromClass}`;
+        }
     }
-    // Implementation relation: ..|>
+    // Implementation relation: ..|> (corrected implementation relationship judgment)
     else if (markerStartAttr.includes('lollipopStart') || markerStartAttr.includes('implementStart')) {
-        relationshipType = `${fromClass} ..|> ${toClass}`;
+        relationshipType = `${toClass} ..|> ${fromClass}`;
     }
     else if (markerEndAttr.includes('implementEnd') || markerEndAttr.includes('lollipopEnd') || 
              (markerEndAttr.includes('interfaceEnd') && isDashed)) {
         relationshipType = `${fromClass} ..|> ${toClass}`;
     }
-    // Composition relation: *--
+    // Composition relation: *-- (corrected composition relationship judgment)
     else if (markerStartAttr.includes('compositionStart')) {
-        relationshipType = `${toClass} *${lineStyle} ${fromClass}`;
+        // marker-start has composition, diamond at start point, means: fromClass *-- toClass
+        relationshipType = `${fromClass} *${lineStyle} ${toClass}`;
     }
     else if (markerEndAttr.includes('compositionEnd') || 
              markerEndAttr.includes('diamondEnd') && markerEndAttr.includes('filled')) { 
-        relationshipType = `${fromClass} *${lineStyle} ${toClass}`;
+        relationshipType = `${toClass} *${lineStyle} ${fromClass}`;
     } 
-    // Aggregation relation: o--
+    // Aggregation relation: o-- (corrected aggregation relationship judgment)
     else if (markerStartAttr.includes('aggregationStart')) {
-        relationshipType = `${toClass} o${lineStyle} ${fromClass}`;
+        // marker-start has aggregation, empty diamond at start point, means: toClass --o fromClass
+        relationshipType = `${toClass} ${lineStyle}o ${fromClass}`;
     }
     else if (markerEndAttr.includes('aggregationEnd') || 
              markerEndAttr.includes('diamondEnd') && !markerEndAttr.includes('filled')) { 
         relationshipType = `${fromClass} o${lineStyle} ${toClass}`;
     } 
-    // Dependency relation: ..>
-    else if (markerStartAttr.includes('dependencyStart') && isDashed) {
-        relationshipType = `${toClass} <.. ${fromClass}`;
+    // Dependency relation: ..> or --> (corrected dependency relationship judgment)
+    else if (markerStartAttr.includes('dependencyStart')) {
+        if (isDashed) {
+            relationshipType = `${toClass} <.. ${fromClass}`;
+        } else {
+            relationshipType = `${toClass} <-- ${fromClass}`;
+        }
     }
-    else if ((markerEndAttr.includes('dependencyEnd') || markerEndAttr.includes('openEnd')) && isDashed) { 
-        relationshipType = `${fromClass} ..> ${toClass}`;
+    else if (markerEndAttr.includes('dependencyEnd')) { 
+        if (isDashed) {
+            relationshipType = `${fromClass} ..> ${toClass}`;
+        } else {
+            relationshipType = `${fromClass} --> ${toClass}`;
+        }
     }
-    // Association relation: -->
+    // Association relation: --> (corrected association relationship judgment)
     else if (markerStartAttr.includes('arrowStart') || markerStartAttr.includes('openStart')) {
         relationshipType = `${toClass} <${lineStyle} ${fromClass}`;
     }
@@ -641,7 +1002,7 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     }
   });
 
-  if (mermaidLines.length <= 1 && Object.keys(classData).length === 0) return null;
+  if (mermaidLines.length <= 1 && Object.keys(classData).length === 0 && notes.length === 0) return null;
   return '```mermaid\n' + mermaidLines.join('\n') + '\n```';
 }
 
@@ -653,171 +1014,257 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
 function convertSequenceDiagramSvgToMermaidText(svgElement) {
     if (!svgElement) return null;
 
-    // 1. Parse participants (only use <text.actor-box>, keep original text and quotes)
+    // 1. Parse participants 
     const participants = [];
-    svgElement.querySelectorAll('g[id^="root-"] > text.actor-box').forEach((textEl) => {
-        const name = textEl.textContent.trim();
+    console.log("Looking for sequence participants..."); // DEBUG
+    
+    // Find all participant text elements
+    svgElement.querySelectorAll('text.actor-box').forEach((textEl) => {
+        const name = textEl.textContent.trim().replace(/^"|"$/g, ''); // Remove quotes
         const x = parseFloat(textEl.getAttribute('x'));
+        console.log("Found participant:", name, "at x:", x); // DEBUG
         if (name && !isNaN(x)) {
             participants.push({ name, x });
         }
     });
+    
+    console.log("Total participants found:", participants.length); // DEBUG
     participants.sort((a, b) => a.x - b.x);
-    const participantNames = participants.map(p => p.name);
-
-    // Participant vertical line y range
-    const actorRanges = participants.map(p => {
-        let line = null;
-        svgElement.querySelectorAll('line.actor-line').forEach(l => {
-            const lx = parseFloat(l.getAttribute('x1'));
-            if (Math.abs(lx - p.x) < 2) line = l;
-        });
-        let y1 = 0, y2 = 99999;
-        if (line) {
-            y1 = parseFloat(line.getAttribute('y1'));
-            y2 = parseFloat(line.getAttribute('y2'));
-        }
-        return { name: p.name, x: p.x, y1, y2 };
-    });
-
-    // 2. Parse loop range
-    let loops = [];
-    let loopRects = [];
-    svgElement.querySelectorAll('.loopLine').forEach(line => {
-        const x1 = parseFloat(line.getAttribute('x1'));
-        const y1 = parseFloat(line.getAttribute('y1'));
-        const x2 = parseFloat(line.getAttribute('x2'));
-        const y2 = parseFloat(line.getAttribute('y2'));
-        if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
-            loopRects.push({x1, y1, x2, y2});
-        }
-    });
-    if (loopRects.length === 4) {
-        const xs = loopRects.map(r => [r.x1, r.x2]).flat();
-        const ys = loopRects.map(r => [r.y1, r.y2]).flat();
-        const xMin = Math.min(...xs), xMax = Math.max(...xs);
-        const yMin = Math.min(...ys), yMax = Math.max(...ys);
-        let loopLabel = '';
-        let loopText = '';
-        const labelText = svgElement.querySelector('.labelText');
-        if (labelText) loopLabel = labelText.textContent.trim();
-        const loopTextEl = svgElement.querySelector('.loopText');
-        if (loopTextEl) loopText = loopTextEl.textContent.trim();
-        loops.push({xMin, xMax, yMin, yMax, label: loopLabel, text: loopText});
-    }
-
-    // 3. Parse activation range
-    const activations = [];
-    svgElement.querySelectorAll('rect[class^="activation"]').forEach(rect => {
-        const x = parseFloat(rect.getAttribute('x'));
-        const y = parseFloat(rect.getAttribute('y'));
-        const width = parseFloat(rect.getAttribute('width'));
-        const height = parseFloat(rect.getAttribute('height'));
-        if (!isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height)) {
-            activations.push({
-                x: x + width/2,
-                yStart: y,
-                yEnd: y + height
-            });
+    
+    // Remove duplicate participants
+    const uniqueParticipants = [];
+    const seenNames = new Set();
+    participants.forEach(p => {
+        if (!seenNames.has(p.name)) {
+            uniqueParticipants.push(p);
+            seenNames.add(p.name);
         }
     });
 
-    // 4. Collect all message lines and texts in DOM order
-    let messageLines = [];
-    let messageTexts = [];
-    const allNodes = Array.from(svgElement.querySelectorAll('*'));
-    allNodes.forEach(el => {
-        if (el.matches('line[class^="messageLine"], path[class^="messageLine"]')) {
-            // Parse from/to
-            let x1, y1, x2, y2, y;
-            if (el.tagName === 'line') {
-                x1 = parseFloat(el.getAttribute('x1'));
-                y1 = parseFloat(el.getAttribute('y1'));
-                x2 = parseFloat(el.getAttribute('x2'));
-                y2 = parseFloat(el.getAttribute('y2'));
-            } else if (el.tagName === 'path') {
-                const d = el.getAttribute('d');
-                const m = d.match(/M\s*([\d.]+),([\d.]+)[^A-Za-z]+([\d.]+),([\d.]+)/);
-                if (m) {
-                    x1 = parseFloat(m[1]); y1 = parseFloat(m[2]);
-                    x2 = parseFloat(m[3]); y2 = parseFloat(m[4]);
-                } else {
-                    x1 = x2 = y1 = y2 = NaN;
+    // 2. Parse Notes
+    const notes = [];
+    svgElement.querySelectorAll('g').forEach(g => {
+        const noteRect = g.querySelector('rect.note');
+        const noteText = g.querySelector('text.noteText');
+        
+        if (noteRect && noteText) {
+            const text = noteText.textContent.trim();
+            const x = parseFloat(noteRect.getAttribute('x'));
+            const width = parseFloat(noteRect.getAttribute('width'));
+            const leftX = x;
+            const rightX = x + width;
+            
+            // Find all participants within note coverage range
+            const coveredParticipants = [];
+            uniqueParticipants.forEach(p => {
+                // Check if participant is within note's horizontal range
+                if (p.x >= leftX && p.x <= rightX) {
+                    coveredParticipants.push(p);
                 }
-            }
-            y = (y1 + y2) / 2;
-            // Self-message enhancement judgment
-            if ((!fromActor || !toActor)) {
-                // 1. x1/x2 nearest principle, relax threshold
-                let minSelf = Infinity, selfActor = null;
-                actorRanges.forEach(a => {
-                    const dist = Math.abs(a.x - x1);
-                    if (dist < minSelf) { minSelf = dist; selfActor = a.name; }
-                });
-                if (minSelf < 50) {
-                    fromActor = toActor = selfActor;
+            });
+            
+            // Sort by x coordinate
+            coveredParticipants.sort((a, b) => a.x - b.x);
+            
+            if (coveredParticipants.length > 0) {
+                let noteTarget;
+                if (coveredParticipants.length === 1) {
+                    // Single participant
+                    noteTarget = coveredParticipants[0].name;
                 } else {
-                    // 2. y range overlap principle
-                    actorRanges.forEach(a => {
-                        if (y >= a.y1 && y <= a.y2) {
-                            fromActor = toActor = a.name;
-                        }
+                    // Multiple participants, use first and last
+                    const firstParticipant = coveredParticipants[0].name;
+                    const lastParticipant = coveredParticipants[coveredParticipants.length - 1].name;
+                    noteTarget = `${firstParticipant},${lastParticipant}`;
+                }
+                
+                notes.push({
+                    text: text,
+                    target: noteTarget,
+                    y: parseFloat(noteRect.getAttribute('y'))
+                });
+            }
+        }
+    });
+    
+    // 3. Parse message lines and message text
+    const messages = [];
+    
+    // Collect all message texts
+    const messageTexts = [];
+    svgElement.querySelectorAll('text.messageText').forEach(textEl => {
+        const text = textEl.textContent.trim();
+        const y = parseFloat(textEl.getAttribute('y'));
+        const x = parseFloat(textEl.getAttribute('x'));
+        if (text && !isNaN(y)) {
+            messageTexts.push({ text, y, x });
+        }
+    });
+    messageTexts.sort((a, b) => a.y - b.y);
+    console.log("Found message texts:", messageTexts.length); // DEBUG
+    
+    // Collect all message lines
+    const messageLines = [];
+    svgElement.querySelectorAll('line.messageLine0, line.messageLine1').forEach(lineEl => {
+        const x1 = parseFloat(lineEl.getAttribute('x1'));
+        const y1 = parseFloat(lineEl.getAttribute('y1'));
+        const x2 = parseFloat(lineEl.getAttribute('x2'));
+        const y2 = parseFloat(lineEl.getAttribute('y2'));
+        const isDashed = lineEl.classList.contains('messageLine1');
+        
+        if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+            messageLines.push({ x1, y1, x2, y2, isDashed });
+        }
+    });
+    
+    // Collect all curved message paths (self messages)
+    svgElement.querySelectorAll('path.messageLine0, path.messageLine1').forEach(pathEl => {
+        const d = pathEl.getAttribute('d');
+        const isDashed = pathEl.classList.contains('messageLine1');
+        
+        if (d) {
+            // Parse path, check if it's a self message
+            const moveMatch = d.match(/M\s*([^,\s]+)[,\s]+([^,\s]+)/);
+            const endMatch = d.match(/([^,\s]+)[,\s]+([^,\s]+)$/);
+            
+            if (moveMatch && endMatch) {
+                const x1 = parseFloat(moveMatch[1]);
+                const y1 = parseFloat(moveMatch[2]);
+                const x2 = parseFloat(endMatch[1]);
+                const y2 = parseFloat(endMatch[2]);
+                
+                // Check if it's a self message (start and end x coordinates are close)
+                if (Math.abs(x1 - x2) < 20) { // Allow some margin of error
+                    messageLines.push({ 
+                        x1, y1, x2, y2, isDashed, 
+                        isSelfMessage: true 
                     });
                 }
             }
-            messageLines.push({from: fromActor, to: toActor, y, arrow: (el.getAttribute('class')||"").includes('messageLine1') ? '-->>' : '->>', lineEl: el});
-        } else if (el.matches('text.messageText')) {
-            messageTexts.push(el.textContent.trim());
         }
     });
-
-    // 5. Strict one-to-one pairing
-    for (let i = 0; i < messageLines.length; i++) {
-        messageLines[i].text = messageTexts[i] || '';
-    }
-
-    // 5.5 Fallback for self-message context
-    for (let i = 0; i < messageLines.length; i++) {
-        let msg = messageLines[i];
-        if (!msg.from || !msg.to) {
-            // Previous message
-            if (i > 0 && messageLines[i-1].to && messageLines[i-1].to === messageLines[i-1].from) {
-                msg.from = msg.to = messageLines[i-1].to;
+    
+    messageLines.sort((a, b) => a.y1 - b.y1);
+    console.log("Found message lines:", messageLines.length); // DEBUG
+    
+    // 4. Match message lines and message text
+    for (let i = 0; i < Math.min(messageLines.length, messageTexts.length); i++) {
+        const line = messageLines[i];
+        const messageText = messageTexts[i];
+        
+        let fromParticipant = null;
+        let toParticipant = null;
+        
+        if (line.isSelfMessage) {
+            // Self message - find participant closest to x1
+            let minDist = Infinity;
+            for (const p of uniqueParticipants) {
+                const dist = Math.abs(p.x - line.x1);
+                if (dist < minDist) {
+                    minDist = dist;
+                    fromParticipant = toParticipant = p.name;
+                }
             }
-            // Next message
-            else if (i < messageLines.length-1 && messageLines[i+1].from && messageLines[i+1].from === messageLines[i+1].to) {
-                msg.from = msg.to = messageLines[i+1].from;
+        } else {
+            // Find sender and receiver based on x coordinates
+            let minDist1 = Infinity;
+            for (const p of uniqueParticipants) {
+                const dist = Math.abs(p.x - line.x1);
+                if (dist < minDist1) {
+                    minDist1 = dist;
+                    fromParticipant = p.name;
+                }
             }
-            // Still not, just use previous to or next from
-            else if (i > 0 && messageLines[i-1].to) {
-                msg.from = msg.to = messageLines[i-1].to;
-            } else if (i < messageLines.length-1 && messageLines[i+1].from) {
-                msg.from = msg.to = messageLines[i+1].from;
+            
+            let minDist2 = Infinity;
+            for (const p of uniqueParticipants) {
+                const dist = Math.abs(p.x - line.x2);
+                if (dist < minDist2) {
+                    minDist2 = dist;
+                    toParticipant = p.name;
+                }
             }
+        }
+        
+        if (fromParticipant && toParticipant) {
+            // Determine arrow type
+            let arrow;
+            if (line.isDashed) {
+                arrow = '-->>'; // Dashed arrow
+            } else {
+                arrow = '->>'; // Solid arrow
+            }
+            
+            messages.push({
+                from: fromParticipant,
+                to: toParticipant,
+                text: messageText.text,
+                arrow: arrow,
+                y: line.y1,
+                isSelfMessage: line.isSelfMessage || false
+            });
+            
+            console.log(`Message ${i + 1}: ${fromParticipant} ${arrow} ${toParticipant}: ${messageText.text}`); // DEBUG
         }
     }
 
-    // 6. Merge all events (message, loop, activation)
-    let events = messageLines.map(m => ({type: 'message', y: m.y, data: m}));
-    loops.forEach(loop => {
-        events.push({type: 'loop_start', y: loop.yMin - 0.1, data: loop});
-        events.push({type: 'loop_end', y: loop.yMax + 0.1, data: loop});
-    });
-    activations.forEach(act => {
-        events.push({type: 'activate', y: act.yStart - 0.05, data: act});
-        events.push({type: 'deactivate', y: act.yEnd + 0.05, data: act});
-    });
-    events.sort((a, b) => a.y - b.y);
+    // 5. Parse loop areas
+    const loops = [];
+    const loopLines = svgElement.querySelectorAll('line.loopLine');
+    if (loopLines.length >= 4) {
+        const xs = Array.from(loopLines).map(line => [
+            parseFloat(line.getAttribute('x1')),
+            parseFloat(line.getAttribute('x2'))
+        ]).flat();
+        const ys = Array.from(loopLines).map(line => [
+            parseFloat(line.getAttribute('y1')),
+            parseFloat(line.getAttribute('y2'))
+        ]).flat();
+        
+        const xMin = Math.min(...xs);
+        const xMax = Math.max(...xs);
+        const yMin = Math.min(...ys);
+        const yMax = Math.max(...ys);
+        
+        let loopText = '';
+        const loopTextEl = svgElement.querySelector('.loopText');
+        if (loopTextEl) {
+            loopText = loopTextEl.textContent.trim();
+        }
+        
+        loops.push({ xMin, xMax, yMin, yMax, text: loopText });
+        console.log("Found loop:", loopText, "from y", yMin, "to", yMax); // DEBUG
+    }
 
-    // 7. Generate Mermaid
+    // 6. Generate Mermaid code
     let mermaidOutput = "sequenceDiagram\n";
-    participants.forEach(p => {
+    
+    // Add participants
+    uniqueParticipants.forEach(p => {
         mermaidOutput += `  participant ${p.name}\n`;
     });
     mermaidOutput += "\n";
 
+    // Sort all events by y coordinate (messages, notes, loops)
+    const events = [];
+    
+    messages.forEach(msg => {
+        events.push({ type: 'message', y: msg.y, data: msg });
+    });
+    
+    notes.forEach(note => {
+        events.push({ type: 'note', y: note.y, data: note });
+    });
+    
+    loops.forEach(loop => {
+        events.push({ type: 'loop_start', y: loop.yMin - 1, data: loop });
+        events.push({ type: 'loop_end', y: loop.yMax + 1, data: loop });
+    });
+    
+    events.sort((a, b) => a.y - b.y);
+    
+    // Generate events
     let loopStack = [];
-    let activationStack = [];
     events.forEach(event => {
         if (event.type === 'loop_start') {
             const text = event.data.text ? ` ${event.data.text}` : '';
@@ -828,32 +1275,25 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
                 mermaidOutput += `  end\n`;
                 loopStack.pop();
             }
-        } else if (event.type === 'activate') {
-            let minDist = Infinity, actor = null;
-            participants.forEach(p => {
-                const dist = Math.abs(p.x - event.data.x);
-                if (dist < minDist) { minDist = dist; actor = p.name; }
-            });
-            if (actor) {
-                mermaidOutput += `  activate ${actor}\n`;
-                activationStack.push(actor);
-            }
-        } else if (event.type === 'deactivate') {
-            if (activationStack.length > 0) {
-                const actor = activationStack.pop();
-                mermaidOutput += `  deactivate ${actor}\n`;
-            }
+        } else if (event.type === 'note') {
+            const indent = loopStack.length > 0 ? '  ' : '';
+            mermaidOutput += `${indent}  note over ${event.data.target}: ${event.data.text}\n`;
         } else if (event.type === 'message') {
-            let indent = '';
-            if (loopStack.length > 0) indent = '  ';
-            const m = event.data;
-            mermaidOutput += `${indent}  ${m.from}${m.arrow}${m.to}: ${m.text}\n`;
+            const indent = loopStack.length > 0 ? '  ' : '';
+            const msg = event.data;
+            mermaidOutput += `${indent}  ${msg.from}${msg.arrow}${msg.to}: ${msg.text}\n`;
         }
     });
-    while (loopStack.length > 0) { mermaidOutput += `  end\n`; loopStack.pop(); }
-    while (activationStack.length > 0) { mermaidOutput += `  deactivate ${activationStack.pop()}\n`; }
+    
+    // Close remaining loops
+    while (loopStack.length > 0) {
+        mermaidOutput += `  end\n`;
+        loopStack.pop();
+    }
 
-    if (participants.length === 0 && events.length === 0) return null;
+    if (uniqueParticipants.length === 0 && messages.length === 0) return null;
+    console.log("Sequence diagram conversion completed. Participants:", uniqueParticipants.length, "Messages:", messages.length, "Notes:", notes.length); // DEBUG
+    console.log("Generated sequence mermaid code:", mermaidOutput.substring(0, 200) + "..."); // DEBUG
     return '```mermaid\n' + mermaidOutput.trim() + '\n```';
 }
 // Helper function: recursively process nodes
@@ -967,19 +1407,31 @@ function processNode(node) {
           const diagramTypeDesc = svgElement.getAttribute('aria-roledescription');
           const diagramClass = svgElement.getAttribute('class');
 
-          // console.log("Found SVG in PRE: desc=", diagramTypeDesc, "class=", diagramClass); // DEBUG
+          console.log("Found SVG in PRE: desc=", diagramTypeDesc, "class=", diagramClass); // DEBUG
           if (diagramTypeDesc && diagramTypeDesc.includes('flowchart')) {
+            console.log("Trying to convert flowchart..."); // DEBUG
             mermaidOutput = convertFlowchartSvgToMermaidText(svgElement);
           } else if (diagramTypeDesc && diagramTypeDesc.includes('class')) {
+            console.log("Trying to convert class diagram..."); // DEBUG
             mermaidOutput = convertClassDiagramSvgToMermaidText(svgElement);
           } else if (diagramTypeDesc && diagramTypeDesc.includes('sequence')) {
+            console.log("Trying to convert sequence diagram..."); // DEBUG
             mermaidOutput = convertSequenceDiagramSvgToMermaidText(svgElement);
           } else if (diagramClass && diagramClass.includes('flowchart')) {
+              console.log("Trying to convert flowchart by class..."); // DEBUG
               mermaidOutput = convertFlowchartSvgToMermaidText(svgElement);
           } else if (diagramClass && (diagramClass.includes('classDiagram') || diagramClass.includes('class'))) {
+              console.log("Trying to convert class diagram by class..."); // DEBUG
               mermaidOutput = convertClassDiagramSvgToMermaidText(svgElement);
           } else if (diagramClass && (diagramClass.includes('sequenceDiagram') || diagramClass.includes('sequence'))) {
+              console.log("Trying to convert sequence diagram by class..."); // DEBUG
               mermaidOutput = convertSequenceDiagramSvgToMermaidText(svgElement);
+          }
+          
+          if (mermaidOutput) {
+            console.log("Successfully converted SVG to mermaid:", mermaidOutput.substring(0, 100) + "..."); // DEBUG
+          } else {
+            console.log("Failed to convert SVG, using fallback"); // DEBUG
           }
         }
 
@@ -1000,72 +1452,98 @@ function processNode(node) {
             const preCls = Array.from(element.classList).find((c) => c.startsWith("language-"));
             if (preCls) lang = preCls.replace("language-", "");
           }
+          // Auto-detect language if still not found
+          if (!lang && txt.trim()) {
+            lang = detectCodeLanguage(txt);
+          }
           resultMd = `\`\`\`${lang}\n${txt.trim()}\n\`\`\`\n\n`;
         }
         break;
       }
       case "A": {
         const href = element.getAttribute("href");
-        let text = "";
+        let initialTextFromNodes = ""; // Collect raw text from children first
         element.childNodes.forEach(c => { 
           try { 
-            text += processNode(c); 
+            initialTextFromNodes += processNode(c); 
           } catch (e) { 
             console.error("Error processing child of A:", c, e); 
-            text += "[err]";
+            initialTextFromNodes += "[err]";
           }
         });
-        text = text.trim();
+        let text = initialTextFromNodes.trim(); // This is the base text for further processing
 
-        if (!text && element.querySelector('img')) {
+        if (!text && element.querySelector('img')) { // Handle img alt text if link content is empty
             text = element.querySelector('img').alt || 'image';
         }
-        text = text || (href ? href : ""); // Fallback to href itself if text is still empty
+        // `text` is now the initial display text, possibly from content or image alt.
+        // `initialTextFromNodes` keeps the original structure for context like "Sources: [...]".
 
         if (href && (href.startsWith('http') || href.startsWith('https') || href.startsWith('/') || href.startsWith('#') || href.startsWith('mailto:'))) {
           
-          // Handle code reference link format
-          const hashMatch = href.match(/#L(\d+)-L(\d+)$/);
-          if (hashMatch) {
-              const hashStartLine = hashMatch[1];
-              const hashEndLine = hashMatch[2];
-              
-              // Match "file.js 47-64" format
-              const textMatch = text.match(/^([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)$/);
-              if (textMatch) {
-                  const textFilename = textMatch[1];
-                  const textStartLine = textMatch[2];
-                  const textEndLine = textMatch[3];
+          let finalLinkDisplayText = text; // Start with the current text, may be overwritten by line logic
 
-                  if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
+          const lineInfoMatch = href.match(/#L(\d+)(?:-L(\d+))?$/);
+
+          if (lineInfoMatch) {
                       const pathPart = href.substring(0, href.indexOf('#'));
-                      if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
-                          text = `${textFilename} L${hashStartLine}-L${hashEndLine}`;
-                      }
-                  }
-              } else {
-                  // Match "Sources: [file.js 47-64]" format
-                  const sourcesMatch = text.match(/^Sources:\s+\[([\w\/-]+(?:\.\w+)?)\s+(\d+)-(\d+)\]$/);
-                  if (sourcesMatch) {
-                      const textFilename = sourcesMatch[1];
-                      const textStartLine = sourcesMatch[2];
-                      const textEndLine = sourcesMatch[3];
-                      
-                      if (hashStartLine === textStartLine && hashEndLine === textEndLine) {
-                          const pathPart = href.substring(0, href.indexOf('#'));
-                          if (pathPart.endsWith('/' + textFilename) || pathPart.includes('/' + textFilename) || pathPart === textFilename) {
-                              text = `Sources: [${textFilename} L${hashStartLine}-L${hashEndLine}]`;
-                          }
-                      }
-                  }
-              }
+            let filenameFromPath = pathPart.substring(pathPart.lastIndexOf('/') + 1) || "link"; // Default filename
+
+            const startLine = lineInfoMatch[1];
+            const endLine = lineInfoMatch[2]; // This is the number after -L, or undefined
+
+            let displayFilename = filenameFromPath; // Start with filename from path
+
+            const trimmedInitialText = initialTextFromNodes.trim(); // Trim for reliable prefix/suffix checks
+            let textToParseForFilename = trimmedInitialText; 
+
+            const isSourcesContext = trimmedInitialText.startsWith("Sources: [") && trimmedInitialText.endsWith("]");
+
+            if (isSourcesContext) {
+                const sourcesContentMatch = trimmedInitialText.match(/^Sources:\s+\[(.*)\]$/);
+                if (sourcesContentMatch && sourcesContentMatch[1]) {
+                    textToParseForFilename = sourcesContentMatch[1].trim(); // Content inside "Sources: [...]"
+                }
+            }
+
+            // Extract filename hint from (potentially sources-stripped) textToParseForFilename
+            // This regex targets the first part that looks like a filename.
+            const filenameHintMatch = textToParseForFilename.match(/^[\w\/\.-]+(?:\.\w+)?/);
+            if (filenameHintMatch && filenameHintMatch[0]) { // Use filenameHintMatch[0] for the matched string
+                // Verify this extracted filename by checking if it's part of the href's path
+                if (pathPart.includes(filenameHintMatch[0])) {
+                    displayFilename = filenameHintMatch[0];
+                }
+            }
+            
+            let lineRefText;
+            if (endLine && endLine !== startLine) { // Range like L10-L20
+              lineRefText = `L${startLine}-L${endLine}`;
+            } else { // Single line like L10, or L10-L10 treated as L10
+              lineRefText = `L${startLine}`;
+            }
+
+            let constructedText = `${displayFilename} ${lineRefText}`;
+
+            if (isSourcesContext) {
+              finalLinkDisplayText = `Sources: [${constructedText}]`;
+            } else {
+              // If not a "Sources:" link, use the newly constructed clean text
+              finalLinkDisplayText = constructedText;
+            }
           }
+          
+          // Fallback: if finalLinkDisplayText is empty (e.g. original text was empty and no lineInfoMatch)
+          // or if it became empty after processing, use href.
+          text = finalLinkDisplayText.trim() || (href ? href : ""); // Ensure text is not empty if href exists
           
           resultMd = `[${text}](${href})`;
           if (window.getComputedStyle(element).display !== "inline") {
               resultMd += "\n\n";
           }
         } else { 
+          // Non-http/s/... link, or no href. Fallback text if empty.
+          text = text.trim() || (href ? href : ""); 
           resultMd = text; 
           if (window.getComputedStyle(element).display !== "inline" && text.trim()) {
               resultMd += "\n\n";
@@ -1205,4 +1683,127 @@ function processNode(node) {
   }
   // console.log("processNode END for:", element.nodeName, "Output:", resultMd.substring(0,50)); // DEBUG
   return resultMd;
+}
+
+// Function to auto-detect programming language from code content
+function detectCodeLanguage(codeText) {
+  if (!codeText || codeText.trim().length < 10) return '';
+  
+  const code = codeText.trim();
+  const firstLine = code.split('\n')[0].trim();
+  const lines = code.split('\n');
+  
+  // JavaScript/TypeScript patterns
+  if (code.includes('function ') || code.includes('const ') || code.includes('let ') || 
+      code.includes('var ') || code.includes('=>') || code.includes('console.log') ||
+      code.includes('require(') || code.includes('import ') || code.includes('export ')) {
+    if (code.includes(': ') && (code.includes('interface ') || code.includes('type ') || 
+        code.includes('enum ') || code.includes('implements '))) {
+      return 'typescript';
+    }
+    return 'javascript';
+  }
+  
+  // Python patterns
+  if (code.includes('def ') || code.includes('import ') || code.includes('from ') ||
+      code.includes('print(') || code.includes('if __name__') || code.includes('class ') ||
+      firstLine.startsWith('#!') && firstLine.includes('python')) {
+    return 'python';
+  }
+  
+  // Java patterns
+  if (code.includes('public class ') || code.includes('private ') || code.includes('public static void main') ||
+      code.includes('System.out.println') || code.includes('import java.')) {
+    return 'java';
+  }
+  
+  // C# patterns
+  if (code.includes('using System') || code.includes('namespace ') || code.includes('public class ') ||
+      code.includes('Console.WriteLine') || code.includes('[Attribute]')) {
+    return 'csharp';
+  }
+  
+  // C/C++ patterns
+  if (code.includes('#include') || code.includes('int main') || code.includes('printf(') ||
+      code.includes('cout <<') || code.includes('std::')) {
+    return code.includes('std::') || code.includes('cout') ? 'cpp' : 'c';
+  }
+  
+  // Go patterns
+  if (code.includes('package ') || code.includes('func ') || code.includes('import (') ||
+      code.includes('fmt.Printf') || code.includes('go ')) {
+    return 'go';
+  }
+  
+  // Rust patterns
+  if (code.includes('fn ') || code.includes('let mut') || code.includes('println!') ||
+      code.includes('use std::') || code.includes('impl ')) {
+    return 'rust';
+  }
+  
+  // PHP patterns
+  if (code.includes('<?php') || code.includes('$') && (code.includes('echo ') || code.includes('print '))) {
+    return 'php';
+  }
+  
+  // Ruby patterns
+  if (code.includes('def ') && (code.includes('end') || code.includes('puts ') || code.includes('require '))) {
+    return 'ruby';
+  }
+  
+  // Shell/Bash patterns
+  if (firstLine.startsWith('#!') && (firstLine.includes('bash') || firstLine.includes('sh')) ||
+      code.includes('#!/bin/') || code.includes('echo ') && code.includes('$')) {
+    return 'bash';
+  }
+  
+  // SQL patterns
+  if (code.match(/\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i)) {
+    return 'sql';
+  }
+  
+  // CSS patterns
+  if (code.includes('{') && code.includes('}') && code.includes(':') && 
+      (code.includes('color:') || code.includes('margin:') || code.includes('padding:') || code.includes('#'))) {
+    return 'css';
+  }
+  
+  // HTML patterns
+  if (code.includes('<') && code.includes('>') && 
+      (code.includes('<!DOCTYPE') || code.includes('<html') || code.includes('<div') || code.includes('<p'))) {
+    return 'html';
+  }
+  
+  // XML patterns
+  if (code.includes('<?xml') || (code.includes('<') && code.includes('>') && code.includes('</'))) {
+    return 'xml';
+  }
+  
+  // JSON patterns
+  if (code.startsWith('{') && code.endsWith('}') || code.startsWith('[') && code.endsWith(']')) {
+    try {
+      JSON.parse(code);
+      return 'json';
+    } catch (e) {
+      // Not valid JSON
+    }
+  }
+  
+  // YAML patterns
+  if (lines.some(line => line.match(/^\s*\w+:\s*/) && !line.includes('{') && !line.includes(';'))) {
+    return 'yaml';
+  }
+  
+  // Markdown patterns
+  if (code.includes('# ') || code.includes('## ') || code.includes('```') || code.includes('[') && code.includes('](')) {
+    return 'markdown';
+  }
+  
+  // Docker patterns
+  if (firstLine.startsWith('FROM ') || code.includes('RUN ') || code.includes('COPY ') || code.includes('WORKDIR ')) {
+    return 'dockerfile';
+  }
+  
+  // Default fallback
+  return '';
 }
