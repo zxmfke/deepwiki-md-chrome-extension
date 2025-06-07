@@ -878,11 +878,32 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
   const labelElements = Array.from(svgElement.querySelectorAll('g.edgeLabels .edgeLabel foreignObject p'));
 
   pathElements.forEach((path, index) => {
-    const id = path.getAttribute('id'); 
-    const parts = id.split('_'); 
-    if (parts.length < 3) return; 
-    const fromClass = parts[1];
-    const toClass = parts[2];
+    const id = path.getAttribute('id');
+    if (!id || !id.startsWith('id_')) return;
+
+    // Remove 'id_' prefix and trailing number (e.g., '_1')
+    let namePart = id.substring(3).replace(/_\d+$/, '');
+
+    const idParts = namePart.split('_');
+    let fromClass = null;
+    let toClass = null;
+
+    // Iterate through possible split points to find valid class names
+    for (let i = 1; i < idParts.length; i++) {
+        const potentialFrom = idParts.slice(0, i).join('_');
+        const potentialTo = idParts.slice(i).join('_');
+        
+        if (classData[potentialFrom] && classData[potentialTo]) {
+            fromClass = potentialFrom;
+            toClass = potentialTo;
+            break; // Found a valid pair
+        }
+    }
+
+    if (!fromClass || !toClass) {
+        console.error("Could not parse class relation from ID:", id);
+        return; // Skip if we couldn't parse
+    }
     
     // Get key attributes
     const markerEndAttr = path.getAttribute('marker-end') || "";
