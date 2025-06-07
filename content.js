@@ -919,8 +919,8 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
             relationshipType = `${fromClass} <|.. ${toClass}`;
         } else {
             // Solid inheritance: fromClass <|-- toClass
-            relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
-        }
+        relationshipType = `${fromClass} <|${lineStyle} ${toClass}`;
+    } 
     } 
     else if (markerEndAttr.includes('extensionEnd')) { 
         // marker-end has extension, arrow at end point, means: fromClass inherits toClass
@@ -961,17 +961,17 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
     // Dependency relation: ..> or --> (corrected dependency relationship judgment)
     else if (markerStartAttr.includes('dependencyStart')) {
         if (isDashed) {
-            relationshipType = `${toClass} <.. ${fromClass}`;
+        relationshipType = `${toClass} <.. ${fromClass}`;
         } else {
             relationshipType = `${toClass} <-- ${fromClass}`;
-        }
+    }
     }
     else if (markerEndAttr.includes('dependencyEnd')) { 
         if (isDashed) {
-            relationshipType = `${fromClass} ..> ${toClass}`;
+        relationshipType = `${fromClass} ..> ${toClass}`;
         } else {
             relationshipType = `${fromClass} --> ${toClass}`;
-        }
+    }
     }
     // Association relation: --> (corrected association relationship judgment)
     else if (markerStartAttr.includes('arrowStart') || markerStartAttr.includes('openStart')) {
@@ -1296,6 +1296,209 @@ function convertSequenceDiagramSvgToMermaidText(svgElement) {
     console.log("Generated sequence mermaid code:", mermaidOutput.substring(0, 200) + "..."); // DEBUG
     return '```mermaid\n' + mermaidOutput.trim() + '\n```';
 }
+
+/**
+ * Helper: Convert SVG State Diagram to Mermaid code
+ * @param {SVGElement} svgElement - The SVG DOM element for the state diagram
+ * @returns {string|null}
+ */
+function convertStateDiagramSvgToMermaidText(svgElement) {
+    if (!svgElement) return null;
+
+    console.log("Converting state diagram...");
+    
+    const nodes = [];
+
+    // 1. Parse all states
+    svgElement.querySelectorAll('g.node.statediagram-state').forEach(stateEl => {
+        const stateName = stateEl.querySelector('foreignObject .nodeLabel p, foreignObject .nodeLabel span')?.textContent.trim();
+        if (!stateName) return;
+
+        const transform = stateEl.getAttribute('transform');
+        const rect = stateEl.querySelector('rect.basic.label-container');
+        if (!transform || !rect) return;
+
+        const transformMatch = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+        if (!transformMatch) return;
+
+        const tx = parseFloat(transformMatch[1]);
+        const ty = parseFloat(transformMatch[2]);
+        const rx = parseFloat(rect.getAttribute('x'));
+        const ry = parseFloat(rect.getAttribute('y'));
+        const width = parseFloat(rect.getAttribute('width'));
+        const height = parseFloat(rect.getAttribute('height'));
+
+        nodes.push({
+            name: stateName,
+            x1: tx + rx,
+            y1: ty + ry,
+            x2: tx + rx + width,
+            y2: ty + ry + height
+        });
+        console.log(`Found State: ${stateName}`, nodes[nodes.length-1]);
+    });
+
+    // 2. Find start state
+    const startStateEl = svgElement.querySelector('g.node.default circle.state-start');
+    if (startStateEl) {
+        const startGroup = startStateEl.closest('g.node');
+        const transform = startGroup.getAttribute('transform');
+        const transformMatch = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+        const r = parseFloat(startStateEl.getAttribute('r'));
+        if (transformMatch && r) {
+            const tx = parseFloat(transformMatch[1]);
+            const ty = parseFloat(transformMatch[2]);
+            nodes.push({
+                name: '[*]',
+                x1: tx - r,
+                y1: ty - r,
+                x2: tx + r,
+                y2: ty + r,
+                isSpecial: true
+            });
+            console.log("Found Start State", nodes[nodes.length-1]);
+        }
+    }
+
+    // 3. Find end state
+    svgElement.querySelectorAll('g.node.default').forEach(endGroup => {
+        if (endGroup.querySelectorAll('path').length >= 2) {
+             const transform = endGroup.getAttribute('transform');
+             if(transform) {
+                const transformMatch = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+                if (transformMatch) {
+                    const tx = parseFloat(transformMatch[1]);
+                    const ty = parseFloat(transformMatch[2]);
+                    const r = 7; // Mermaid end circle radius is 7
+                    nodes.push({
+                        name: '[*]',
+                        x1: tx - r,
+                        y1: ty - r,
+                        x2: tx + r,
+                        y2: ty + r,
+                        isSpecial: true
+                    });
+                    console.log("Found End State", nodes[nodes.length-1]);
+                }
+            }
+        }
+    });
+
+    // 4. Get all labels
+    const labels = [];
+    svgElement.querySelectorAll('g.edgeLabel').forEach(labelEl => {
+        const text = labelEl.querySelector('foreignObject .edgeLabel p, foreignObject .edgeLabel span')?.textContent.trim().replace(/^"|"$/g, '');
+        const transform = labelEl.getAttribute('transform');
+        if (text && transform) {
+            const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+            if (match) {
+                labels.push({
+                    text: text,
+                    x: parseFloat(match[1]),
+                    y: parseFloat(match[2])
+                });
+            }
+        }
+    });
+
+    function getDistanceToBox(px, py, box) {
+        const dx = Math.max(box.x1 - px, 0, px - box.x2);
+        const dy = Math.max(box.y1 - py, 0, py - box.y2);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getDistance(x1, y1, x2, y2) {
+        return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
+    }
+
+    const transitions = [];
+
+    // 5. Process paths
+    svgElement.querySelectorAll('path.transition').forEach(pathEl => {
+        const dAttr = pathEl.getAttribute('d');
+        if (!dAttr) return;
+
+        const startMatch = dAttr.match(/M\s*([^,\s]+)[,\s]+([^,\s]+)/);
+        // More robustly find the last coordinate pair in the d string
+        const pathSegments = dAttr.split(/[A-Za-z]/);
+        const lastSegment = pathSegments[pathSegments.length-1].trim();
+        const endCoords = lastSegment.split(/[\s,]+/).map(parseFloat);
+
+        if (!startMatch || endCoords.length < 2) return;
+
+        const startX = parseFloat(startMatch[1]);
+        const startY = parseFloat(startMatch[2]);
+        const endX = endCoords[endCoords.length - 2];
+        const endY = endCoords[endCoords.length - 1];
+
+        let sourceNode = null, targetNode = null;
+        let minSourceDist = Infinity, minTargetDist = Infinity;
+
+        nodes.forEach(node => {
+            const distToStart = getDistanceToBox(startX, startY, node);
+            if (distToStart < minSourceDist) {
+                minSourceDist = distToStart;
+                sourceNode = node;
+            }
+            const distToEnd = getDistanceToBox(endX, endY, node);
+            if (distToEnd < minTargetDist) {
+                minTargetDist = distToEnd;
+                targetNode = node;
+            }
+        });
+
+        let transitionLabel = '';
+        if (sourceNode && targetNode && (minSourceDist < 5) && (minTargetDist < 5)) {
+            // Find label
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+            let closestLabel = null;
+            let minLabelDist = Infinity;
+
+            labels.forEach(label => {
+                const dist = getDistance(midX, midY, label.x, label.y);
+                if (dist < minLabelDist) {
+                    minLabelDist = dist;
+                    closestLabel = label;
+                }
+            });
+
+            if (closestLabel && minLabelDist < 150) { // Arbitrary threshold, seems to work
+                transitionLabel = closestLabel.text;
+            }
+            
+            if(sourceNode === targetNode) return; // Ignore self-loops for now
+            
+            const newTransition = {
+                from: sourceNode.name,
+                to: targetNode.name,
+                label: transitionLabel
+            };
+            
+            // Avoid adding duplicates
+            if (!transitions.some(t => t.from === newTransition.from && t.to === newTransition.to && t.label === newTransition.label)) {
+                 transitions.push(newTransition);
+            }
+        }
+    });
+
+    // 6. Generate Mermaid code
+    let mermaidCode = "stateDiagram-v2\n";
+    transitions.forEach(t => {
+        let line = `    ${t.from} --> ${t.to}`;
+        if (t.label) {
+            line += ` : "${t.label}"`;
+        }
+        mermaidCode += line + '\n';
+    });
+
+    if (transitions.length === 0) return null;
+
+    console.log("State diagram conversion completed. Transitions:", transitions.length);
+    console.log("Generated state diagram mermaid code:", mermaidCode);
+    
+    return '```mermaid\n' + mermaidCode.trim() + '\n```';
+}
 // Helper function: recursively process nodes
 function processNode(node) {
   // console.log("processNode START:", node.nodeName, node.nodeType, node.textContent ? node.textContent.substring(0,50) : ''); // DEBUG
@@ -1417,6 +1620,9 @@ function processNode(node) {
           } else if (diagramTypeDesc && diagramTypeDesc.includes('sequence')) {
             console.log("Trying to convert sequence diagram..."); // DEBUG
             mermaidOutput = convertSequenceDiagramSvgToMermaidText(svgElement);
+          } else if (diagramTypeDesc && diagramTypeDesc.includes('stateDiagram')) {
+            console.log("Trying to convert state diagram..."); // DEBUG
+            mermaidOutput = convertStateDiagramSvgToMermaidText(svgElement);
           } else if (diagramClass && diagramClass.includes('flowchart')) {
               console.log("Trying to convert flowchart by class..."); // DEBUG
               mermaidOutput = convertFlowchartSvgToMermaidText(svgElement);
@@ -1426,6 +1632,9 @@ function processNode(node) {
           } else if (diagramClass && (diagramClass.includes('sequenceDiagram') || diagramClass.includes('sequence'))) {
               console.log("Trying to convert sequence diagram by class..."); // DEBUG
               mermaidOutput = convertSequenceDiagramSvgToMermaidText(svgElement);
+          } else if (diagramClass && (diagramClass.includes('statediagram') || diagramClass.includes('stateDiagram'))) {
+              console.log("Trying to convert state diagram by class..."); // DEBUG
+              mermaidOutput = convertStateDiagramSvgToMermaidText(svgElement);
           }
           
           if (mermaidOutput) {
@@ -1807,3 +2016,6 @@ function detectCodeLanguage(codeText) {
   // Default fallback
   return '';
 }
+
+// Notify the background script that the content script is ready
+chrome.runtime.sendMessage({ action: "contentScriptReady" });
