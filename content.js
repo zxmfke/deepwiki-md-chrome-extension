@@ -122,6 +122,8 @@ function convertFlowchartSvgToMermaidText(svgElement) {
   console.log("Found flowchart nodes:", nodeElements.length); // DEBUG
   nodeElements.forEach(nodeEl => {
     const svgId = nodeEl.id;
+    if (!svgId) return; // Skip nodes without an ID
+
     console.log("Processing node:", svgId); // DEBUG
     let textContent = "";
     
@@ -191,39 +193,13 @@ function convertFlowchartSvgToMermaidText(svgElement) {
       svgId: svgId 
     };
 
-    // Get node position
-    let position = null;
-    
-    // Get position from transform attribute
-    const transform = nodeEl.getAttribute('transform');
-    if (transform) {
-      const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
-      if (match) {
-        position = {
-          x: parseFloat(match[1]),
-          y: parseFloat(match[2])
-        };
-      }
-    }
-    
-    // If cannot get from transform, try from rect element
-    if (!position) {
-      const rect = nodeEl.querySelector('rect');
-      if (rect) {
-        const x = parseFloat(rect.getAttribute('x') || 0);
-        const y = parseFloat(rect.getAttribute('y') || 0);
-        const width = parseFloat(rect.getAttribute('width') || 0);
-        const height = parseFloat(rect.getAttribute('height') || 0);
-        
-        position = {
-          x: x + width / 2, // Use center coordinates
-          y: y + height / 2
-        };
-      }
-    }
-    
-    if (position) {
-      nodePositions[mermaidId] = position;
+    // Get node position using getBoundingClientRect for robustness
+    const nodeBbox = nodeEl.getBoundingClientRect();
+    if (nodeBbox.width > 0 || nodeBbox.height > 0) {
+      nodePositions[svgId] = {
+          x: nodeBbox.left + nodeBbox.width / 2,
+          y: nodeBbox.top + nodeBbox.height / 2
+      };
     }
   });
 
@@ -254,28 +230,25 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     };
     const rectEl = clusterEl.querySelector('rect');
     if (rectEl) {
-      const x = parseFloat(rectEl.getAttribute('x') || 0);
-      const y = parseFloat(rectEl.getAttribute('y') || 0);
-      const width = parseFloat(rectEl.getAttribute('width') || 0);
-      const height = parseFloat(rectEl.getAttribute('height') || 0);
-      if (!isNaN(x) && !isNaN(y) && !isNaN(width) && !isNaN(height)) {
-        clusterBounds[clusterMermaidId] = {
-          x: x,
-          y: y,
-          width: width,
-          height: height,
-          right: x + width,
-          bottom: y + height,
-          area: width * height
-        };
-      }
+        const bbox = rectEl.getBoundingClientRect();
+        if (bbox.width > 0 && bbox.height > 0) {
+            clusterBounds[clusterMermaidId] = {
+                x: bbox.left,
+                y: bbox.top,
+                right: bbox.right,
+                bottom: bbox.bottom,
+                area: bbox.width * bbox.height
+            };
+        }
     }
   });
 
-  // Use spatial position and distance to assign nodes to subgraphs
-  // You can consider analyzing the relative position between nodes and subgraphs to optimize assignment
-  for (const nodeId in nodePositions) {
-    const pos = nodePositions[nodeId];
+  // Use spatial position to assign nodes to subgraphs
+  for (const svgId in nodePositions) {
+    const pos = nodePositions[svgId];
+    const node = nodes[svgId];
+    if (!node) continue;
+
     // Find all subgraphs containing this node
     const containingClusters = Object.entries(clusterBounds).filter(([clusterId, bounds]) =>
       pos.x >= bounds.x && pos.x <= bounds.right &&
@@ -284,16 +257,17 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     if (containingClusters.length > 0) {
       // Choose the smallest area (innermost)
       containingClusters.sort((a, b) => a[1].area - b[1].area);
-      const clusterId = containingClusters[0][0];
-      nodeClusterMap[nodeId] = clusterId;
-      clusters[clusterId].nodes.push(nodeId);
-      // Update node object
-      for (const svgId in nodes) {
-        if (nodes[svgId].mermaidId === nodeId) {
-          nodes[svgId].clusterMermaidId = clusterId;
-          break;
-        }
+      const clusterMermaidId = containingClusters[0][0];
+      
+      // Store the unique svgId in the cluster's node list
+      clusters[clusterMermaidId].nodes.push(svgId);
+      
+      // Update node object with its cluster id
+      const nodeToUpdate = Object.values(nodes).find(n => n.svgId === svgId);
+      if (nodeToUpdate) {
+          nodeToUpdate.clusterMermaidId = clusterMermaidId;
       }
+      nodeClusterMap[node.mermaidId] = clusterMermaidId;
     }
   }
 
@@ -462,28 +436,38 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     
     // 3. Match by position
     if (!label) {
-      const pathD = path.getAttribute('d') || "";
-      const midPointMatch = pathD.match(/M[^C]+C[^,]+,[^,]+,([^,]+),([^,]+)/);
-      let midX = null, midY = null;
-      if (midPointMatch) {
-        midX = parseFloat(midPointMatch[1]);
-        midY = parseFloat(midPointMatch[2]);
+      try {
+        // Use getPointAtLength for a more accurate midpoint on the path, which is more robust than getBBox.
+        const totalLength = path.getTotalLength();
+        if (totalLength > 0) {
+            const midPoint = path.getPointAtLength(totalLength / 2);
+            const midX = midPoint.x;
+            const midY = midPoint.y;
+
+            if (!isNaN(midX) && !isNaN(midY)) {
         let closestLabel = null;
         let closestDist = Infinity;
+
         for (const pos in labelInfo) {
-          const [x, y] = pos.split(',').map(parseFloat);
-          const dist = Math.sqrt(Math.pow(x - midX, 2) + Math.pow(y - midY, 2));
+                    const currentLabel = labelInfo[pos];
+                    const dist = Math.sqrt(Math.pow(currentLabel.x - midX, 2) + Math.pow(currentLabel.y - midY, 2));
+
           if (dist < closestDist) {
             closestDist = dist;
-            closestLabel = labelInfo[pos];
-          }
-        }
-        // Use a stricter threshold to avoid incorrect label assignment
-        if (closestLabel && closestDist < 50) { // Reduced from 200 to 50
+                        closestLabel = currentLabel;
+                    }
+                }
+
+                // A stricter threshold is now possible due to more accurate midpoint calculation.
+                const threshold = 75; 
+
+                if (closestLabel && closestDist < threshold) {
           label = closestLabel.text;
-          // Mark this label as used to prevent it from being assigned to other edges
-          delete labelInfo[`${closestLabel.x},${closestLabel.y}`];
         }
+      }
+        }
+      } catch (e) {
+          console.error("Error calculating path midpoint for label matching:", e);
       }
     }
     
@@ -534,10 +518,13 @@ function convertFlowchartSvgToMermaidText(svgElement) {
   // Build Mermaid output
   
   // 1. Output all node definitions first
+  const definedNodeMermaidIds = new Set();
   for (const svgId in nodes) {
     const node = nodes[svgId];
-    if (!mermaidCode.includes(`${node.mermaidId}["`)) {
+    // Prevent defining the same mermaidId twice
+    if (!definedNodeMermaidIds.has(node.mermaidId)) {
       mermaidCode += `${node.mermaidId}["${node.text}"]\n`;
+      definedNodeMermaidIds.add(node.mermaidId);
     }
   }
   
@@ -558,10 +545,10 @@ function convertFlowchartSvgToMermaidText(svgElement) {
     mermaidCode += `subgraph ${clusterMermaidId} ["${cluster.title}"]\n`;
     
     // Output nodes in subgraph
-    for (const nodeId of cluster.nodes) {
-      const node = Object.values(nodes).find(n => n.mermaidId === nodeId);
+    for (const svgId of cluster.nodes) {
+      const node = nodes[svgId];
       if (node) {
-        mermaidCode += `    ${nodeId}\n`;
+        mermaidCode += `    ${node.mermaidId}\n`;
       }
     }
     
