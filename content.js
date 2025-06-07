@@ -111,460 +111,269 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function convertFlowchartSvgToMermaidText(svgElement) {
   if (!svgElement) return null;
 
+    console.log("Starting flowchart conversion with hierarchical logic...");
   let mermaidCode = "flowchart TD\n\n";
   const nodes = {}; 
   const clusters = {}; 
-  const nodeClusterMap = {}; // Mapping of node to its subgraph
+    const parentMap = {}; // Maps a child SVG ID to its parent SVG ID
+    const allElements = {}; // All nodes and clusters, for easy lookup
 
-  // Process nodes and collect position information
-  const nodePositions = {};
-  const nodeElements = svgElement.querySelectorAll('g.node');
-  console.log("Found flowchart nodes:", nodeElements.length); // DEBUG
-  nodeElements.forEach(nodeEl => {
+    // 1. Collect all nodes
+    svgElement.querySelectorAll('g.node').forEach(nodeEl => {
     const svgId = nodeEl.id;
-    if (!svgId) return; // Skip nodes without an ID
+        if (!svgId) return;
 
-    console.log("Processing node:", svgId); // DEBUG
-    let textContent = "";
-    
-    // Try multiple ways to get node text
-    // More specific selector for <p> tags that might contain <br>
-    const pElementForText = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p'); 
-    
-    if (pElementForText) {
-        let rawParts = [];
-        // Iterate over child nodes of the <p> element to correctly handle <br>
-        pElementForText.childNodes.forEach(child => {
-            if (child.nodeType === Node.TEXT_NODE) {
-                rawParts.push(child.textContent);
-            } else if (child.nodeName.toUpperCase() === 'BR') {
-                rawParts.push('<br>');
-            } else if (child.nodeType === Node.ELEMENT_NODE) { 
-                // For other nested elements within p, take their textContent.
-                rawParts.push(child.textContent || ''); 
+        let textContent = "";
+        const pElementForText = nodeEl.querySelector('.label foreignObject div > span > p, .label foreignObject div > p');
+        if (pElementForText) {
+            let rawParts = [];
+            pElementForText.childNodes.forEach(child => {
+                if (child.nodeType === Node.TEXT_NODE) rawParts.push(child.textContent);
+                else if (child.nodeName.toUpperCase() === 'BR') rawParts.push('<br>');
+                else if (child.nodeType === Node.ELEMENT_NODE) rawParts.push(child.textContent || '');
+            });
+            textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
+        }
+        if (!textContent.trim()) {
+            const nodeLabel = nodeEl.querySelector('.nodeLabel, .label, foreignObject span, foreignObject div, text');
+            if (nodeLabel && nodeLabel.textContent) {
+                textContent = nodeLabel.textContent.trim().replace(/"/g, '#quot;');
             }
-        });
-        textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
-    }
-    
-    // Fallback if the primary method didn't yield text
-    if (!textContent.trim()) { 
-        const textFo = nodeEl.querySelector('.label foreignObject p, .label p'); // Broader <p> selectors
-    if (textFo) {
-          let rawParts = [];
-          textFo.childNodes.forEach(child => {
-            if (child.nodeType === Node.TEXT_NODE) { rawParts.push(child.textContent); }
-            else if (child.nodeName.toUpperCase() === 'BR') { rawParts.push('<br>'); }
-            else if (child.nodeType === Node.ELEMENT_NODE) { rawParts.push(child.textContent || ''); }
-          });
-          textContent = rawParts.join('').trim().replace(/"/g, '#quot;');
-          
-          // If BR processing results in empty but original textContent was not, use original (trimmed)
-          if (!textContent.trim() && textFo.textContent && textFo.textContent.trim()) {
-      textContent = textFo.textContent.trim().replace(/"/g, '#quot;');
-          }
         }
-    }
-    
-    // Try more fallback selectors for newer mermaid versions
-    if (!textContent.trim()) {
-        const nodeLabel = nodeEl.querySelector('.nodeLabel, .label, foreignObject span, foreignObject div');
-        if (nodeLabel && nodeLabel.textContent) {
-            textContent = nodeLabel.textContent.trim().replace(/"/g, '#quot;');
-        }
-    }
-    
-    if (!textContent.trim()) { // Further fallback to <text> elements
-      const textElement = nodeEl.querySelector('text, .label text');
-      if (textElement && textElement.textContent) {
-        textContent = textElement.textContent.trim().replace(/"/g, '#quot;');
-      }
-    }
-    
-    console.log("Node text content:", textContent); // DEBUG
-    
-    // Create node ID
-    let mermaidId = svgId.replace(/^flowchart-/, '');
-    mermaidId = mermaidId.replace(/-\d+$/, '');
-    
+        
+        let mermaidId = svgId.replace(/^flowchart-/, '').replace(/-\d+$/, '');
+
+        const bbox = nodeEl.getBoundingClientRect();
+        if (bbox.width > 0 || bbox.height > 0) {
     nodes[svgId] = { 
+                type: 'node',
       mermaidId: mermaidId, 
       text: textContent, 
-      svgId: svgId 
-    };
+                svgId: svgId,
+                bbox: bbox,
+            };
+            allElements[svgId] = nodes[svgId];
+        }
+    });
 
-    // Get node position using getBoundingClientRect for robustness
-    const nodeBbox = nodeEl.getBoundingClientRect();
-    if (nodeBbox.width > 0 || nodeBbox.height > 0) {
-      nodePositions[svgId] = {
-          x: nodeBbox.left + nodeBbox.width / 2,
-          y: nodeBbox.top + nodeBbox.height / 2
-      };
-    }
-  });
+    // 2. Collect all clusters
+    svgElement.querySelectorAll('g.cluster').forEach(clusterEl => {
+        const svgId = clusterEl.id;
+        if (!svgId) return;
 
-  // Process subgraphs/clusters
-  const clusterBounds = {};
-  const svgClusterElements = svgElement.querySelectorAll('g.cluster');
-  svgClusterElements.forEach(clusterEl => {
-    const clusterSvgId = clusterEl.id;
-    // Get subgraph title
     let title = "";
-    const labelFo = clusterEl.querySelector('.cluster-label foreignObject div > span > p, .cluster-label foreignObject div > p, .cluster-label foreignObject p, .cluster-label foreignObject, g foreignObject div, g foreignObject span');
-    if (labelFo) {
-      if (labelFo.textContent) {
-        title = labelFo.textContent.trim();
-      } else if (labelFo.querySelector('p')) {
-        title = labelFo.querySelector('p').textContent.trim();
-      }
+        const labelEl = clusterEl.querySelector('.cluster-label, .label');
+        if (labelEl && labelEl.textContent) {
+            title = labelEl.textContent.trim();
     }
     if (!title) {
-      title = clusterSvgId;
-    }
-    const clusterMermaidId = title.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-    clusters[clusterMermaidId] = { 
+          title = svgId;
+        }
+
+        const rect = clusterEl.querySelector('rect');
+        const bbox = rect ? rect.getBoundingClientRect() : clusterEl.getBoundingClientRect();
+
+        if (bbox.width > 0 || bbox.height > 0) {
+            clusters[svgId] = {
+                type: 'cluster',
+                mermaidId: svgId, // Use stable SVG ID for mermaid ID
       title: title, 
-      nodes: [], 
-      svgId: clusterSvgId,
-      edges: []
-    };
-    const rectEl = clusterEl.querySelector('rect');
-    if (rectEl) {
-        const bbox = rectEl.getBoundingClientRect();
-        if (bbox.width > 0 && bbox.height > 0) {
-            clusterBounds[clusterMermaidId] = {
-                x: bbox.left,
-                y: bbox.top,
-                right: bbox.right,
-                bottom: bbox.bottom,
-                area: bbox.width * bbox.height
+                svgId: svgId,
+                bbox: bbox,
+            };
+            allElements[svgId] = clusters[svgId];
+        }
+    });
+
+    // 3. Build hierarchy (parentMap) by checking for geometric containment
+    for (const childId in allElements) {
+        const child = allElements[childId];
+        let potentialParentId = null;
+        let minArea = Infinity;
+
+        for (const parentId in clusters) {
+            if (childId === parentId) continue;
+            const parent = clusters[parentId];
+
+            if (child.bbox.left >= parent.bbox.left &&
+                child.bbox.right <= parent.bbox.right &&
+                child.bbox.top >= parent.bbox.top &&
+                child.bbox.bottom <= parent.bbox.bottom) {
+
+                const area = parent.bbox.width * parent.bbox.height;
+                if (area < minArea) {
+                    minArea = area;
+                    potentialParentId = parentId;
+                }
+            }
+        }
+        if (potentialParentId) {
+            parentMap[childId] = potentialParentId;
+        }
+    }
+
+    // 4. Process edges and assign to their lowest common ancestor cluster
+    const edges = [];
+    const edgeLabels = {};
+    svgElement.querySelectorAll('g.edgeLabel').forEach(labelEl => {
+        const text = labelEl.textContent?.trim();
+        const bbox = labelEl.getBoundingClientRect();
+        if(text) {
+             edgeLabels[labelEl.id] = {
+                text,
+                x: bbox.left + bbox.width / 2,
+                y: bbox.top + bbox.height / 2
             };
         }
-    }
-  });
-
-  // Use spatial position to assign nodes to subgraphs
-  for (const svgId in nodePositions) {
-    const pos = nodePositions[svgId];
-    const node = nodes[svgId];
-    if (!node) continue;
-
-    // Find all subgraphs containing this node
-    const containingClusters = Object.entries(clusterBounds).filter(([clusterId, bounds]) =>
-      pos.x >= bounds.x && pos.x <= bounds.right &&
-      pos.y >= bounds.y && pos.y <= bounds.bottom
-    );
-    if (containingClusters.length > 0) {
-      // Choose the smallest area (innermost)
-      containingClusters.sort((a, b) => a[1].area - b[1].area);
-      const clusterMermaidId = containingClusters[0][0];
-      
-      // Store the unique svgId in the cluster's node list
-      clusters[clusterMermaidId].nodes.push(svgId);
-      
-      // Update node object with its cluster id
-      const nodeToUpdate = Object.values(nodes).find(n => n.svgId === svgId);
-      if (nodeToUpdate) {
-          nodeToUpdate.clusterMermaidId = clusterMermaidId;
-      }
-      nodeClusterMap[node.mermaidId] = clusterMermaidId;
-    }
-  }
-
-  // Process edge labels
-  const edgeLabelsById = {};
-  
-  // Extract all edge labels
-  svgElement.querySelectorAll('g.edgeLabel').forEach(labelEl => {
-    const labelId = labelEl.id || "";
-    let labelText = "";
-    
-    // Try multiple ways to get label text
-    const selectors = [
-      '.label foreignObject p', 
-      '.label foreignObject span p', 
-      '.label foreignObject div p',
-      '.label foreignObject span.edgeLabel',
-      '.label foreignObject div.labelBkg span.edgeLabel',
-      'foreignObject'
-    ];
-    
-    for (const selector of selectors) {
-      const el = labelEl.querySelector(selector);
-      if (el && el.textContent) {
-        labelText = el.textContent.trim();
-        if (labelText) break;
-      }
-    }
-    
-    // If all above fail, get inner text directly
-    if (!labelText && labelEl.textContent) {
-      labelText = labelEl.textContent.trim();
-    }
-    
-    if (labelId && labelText) {
-      edgeLabelsById[labelId] = labelText;
-    }
-  });
-  
-  // Analyze the relationship between edges and labels by position
-  const labelInfo = {};
-  
-  // Get label position information
-  svgElement.querySelectorAll('g.edgeLabel').forEach(labelGroup => {
-    const transform = labelGroup.getAttribute('transform') || "";
-    const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
-    if (match) {
-      const x = parseFloat(match[1]);
-      const y = parseFloat(match[2]);
-      
-      let text = "";
-      const selectors = [
-        '.label foreignObject p', 
-        '.label foreignObject span p', 
-        '.label foreignObject div p',
-        '.label foreignObject span.edgeLabel',
-        '.label foreignObject div.labelBkg span.edgeLabel',
-        'foreignObject'
-      ];
-      
-      for (const selector of selectors) {
-        const el = labelGroup.querySelector(selector);
-        if (el && el.textContent) {
-          text = el.textContent.trim();
-          if (text) break;
-        }
-      }
-      
-      if (!text && labelGroup.textContent) {
-        text = labelGroup.textContent.trim();
-      }
-      
-      if (text) {
-        labelInfo[`${x},${y}`] = {
-          text: text,
-          id: labelGroup.id || "",
-          x: x,  // Add x coordinate for reference
-          y: y   // Add y coordinate for reference
-        };
-        
-        if (labelGroup.id) {
-          edgeLabelsById[labelGroup.id] = text;
-        }
-      }
-    }
-  });
-  
-  // Process edges, find corresponding labels by ID and position
-  const innerClusterEdges = {}; // Edges inside subgraph
-  const interClusterEdges = []; // Edges between subgraphs
-  const normalEdges = []; // Edges not in any subgraph
+    });
   
   svgElement.querySelectorAll('path.flowchart-link').forEach(path => {
-    const pathId = path.id || "";
+        const pathId = path.id;
     if (!pathId) return;
     
-    // Try to parse node relationship, suitable for common ID format like L_NodeA_NodeB
     let sourceNode = null;
     let targetNode = null;
-    let sourceName = null;
-    let targetName = null;
-    
-    if (pathId.startsWith("L_") || pathId.startsWith("FL_")) {
-      const idPrefix = pathId.startsWith("L_") ? "L_" : "FL_";
-      let remainingPathId = pathId.substring(idPrefix.length);
-      
-      let baseIdForSplit = remainingPathId;
-      // Attempt to remove a trailing _<number> if it exists (edge index)
-      const edgeIndexMatch = remainingPathId.match(/^(.*?)_(\d+)$/);
-      if (edgeIndexMatch && edgeIndexMatch[1]) { // Ensure capture group 1 exists
-          baseIdForSplit = edgeIndexMatch[1]; 
-      }
+        let idParts = pathId.replace(/^(L_|FL_)/, '').split('_');
+        if(idParts.length > 1 && idParts[idParts.length-1].match(/^\d+$/)){
+            idParts.pop();
+        }
+        idParts = idParts.join('_');
 
-      const idParts = baseIdForSplit.split('_');
-
-      // Iterate through possible split points to find source and target
-      // Handles cases like "node_part1_node_part2" splitting into "node_part1" and "node_part2"
-      for (let i = 1; i < idParts.length; i++) {
-        const potentialSourceName = idParts.slice(0, i).join('_');
-        const potentialTargetName = idParts.slice(i).join('_');
+        for (let i = 1; i < idParts.length; i++) {
+            const potentialSourceName = idParts.substring(0,i);
+            const potentialTargetName = idParts.substring(i);
+             const foundSourceNode = Object.values(nodes).find(n => n.mermaidId === potentialSourceName);
+             const foundTargetNode = Object.values(nodes).find(n => n.mermaidId === potentialTargetName);
+             if(foundSourceNode && foundTargetNode){
+                 sourceNode = foundSourceNode;
+                 targetNode = foundTargetNode;
+                 break;
+             }
+        }
         
-        const foundSourceNode = Object.values(nodes).find(n => n.mermaidId === potentialSourceName);
-        const foundTargetNode = Object.values(nodes).find(n => n.mermaidId === potentialTargetName);
-
-        if (foundSourceNode && foundTargetNode) {
-          sourceNode = foundSourceNode;
-          targetNode = foundTargetNode;
-          sourceName = potentialSourceName; // Used for label lookup
-          targetName = potentialTargetName; // Used for label lookup
-          break; // Found a valid pair
-        }
-      }
-    }
-    
-    // If cannot parse by ID, try to infer by marker-end or path
-    if (!sourceNode || !targetNode) {
-      // You can add other heuristics here, but need more complex parsing
-      // Temporarily skip edges that cannot be parsed
-      return;
-    }
-    
-    // Find the label for this edge
-    let label = null;
-    
-    // 1. Get directly from ID mapping
-    if (edgeLabelsById[pathId]) {
-      label = edgeLabelsById[pathId];
-    }
-    // 2. Try other possible label ID formats
-    else {
-      const possibleIds = [
-        `edgeLabel-${sourceName}-${targetName}`,
-        `L-${sourceName}-${targetName}`,
-        `L_${sourceName}_${targetName}`,
-        `${sourceName}-${targetName}`,
-        `${sourceName}_${targetName}`
-      ];
-      
-      for (const possibleId of possibleIds) {
-        if (edgeLabelsById[possibleId]) {
-          label = edgeLabelsById[possibleId];
+         if (!sourceNode || !targetNode) { // Fallback for complex names
+            const pathIdParts = pathId.replace(/^(L_|FL_)/, '').split('_');
+            if(pathIdParts.length > 2){
+                 for (let i = 1; i < pathIdParts.length; i++) {
+                    const sName = pathIdParts.slice(0, i).join('_');
+                    const tName = pathIdParts.slice(i, pathIdParts.length -1).join('_');
+                    const foundSourceNode = Object.values(nodes).find(n => n.mermaidId === sName);
+                    const foundTargetNode = Object.values(nodes).find(n => n.mermaidId === tName);
+                     if(foundSourceNode && foundTargetNode){
+                         sourceNode = foundSourceNode;
+                         targetNode = foundTargetNode;
           break;
+                     }
+                }
+            }
         }
-      }
-    }
-    
-    // 3. Match by position
-    if (!label) {
-      try {
-        // Use getPointAtLength for a more accurate midpoint on the path, which is more robust than getBBox.
-        const totalLength = path.getTotalLength();
-        if (totalLength > 0) {
-            const midPoint = path.getPointAtLength(totalLength / 2);
-            const midX = midPoint.x;
-            const midY = midPoint.y;
 
-            if (!isNaN(midX) && !isNaN(midY)) {
+        if (!sourceNode || !targetNode) {
+            console.warn("Could not determine source/target for edge:", pathId);
+            return;
+        }
+
+        let label = "";
+        try {
+            const totalLength = path.getTotalLength();
+            if (totalLength > 0) {
+                const midPoint = path.getPointAtLength(totalLength / 2);
         let closestLabel = null;
         let closestDist = Infinity;
-
-        for (const pos in labelInfo) {
-                    const currentLabel = labelInfo[pos];
-                    const dist = Math.sqrt(Math.pow(currentLabel.x - midX, 2) + Math.pow(currentLabel.y - midY, 2));
-
+                for (const labelId in edgeLabels) {
+                    const currentLabel = edgeLabels[labelId];
+                    const dist = Math.sqrt(Math.pow(currentLabel.x - midPoint.x, 2) + Math.pow(currentLabel.y - midPoint.y, 2));
           if (dist < closestDist) {
             closestDist = dist;
                         closestLabel = currentLabel;
-                    }
-                }
-
-                // A stricter threshold is now possible due to more accurate midpoint calculation.
-                const threshold = 75; 
-
-                if (closestLabel && closestDist < threshold) {
+          }
+        }
+                if (closestLabel && closestDist < 75) {
           label = closestLabel.text;
         }
       }
+        } catch (e) {
+            console.error("Error matching label for edge " + pathId, e);
         }
-      } catch (e) {
-          console.error("Error calculating path midpoint for label matching:", e);
-      }
-    }
-    
-    // Helper function to properly escape labels for Mermaid
-    function escapeLabelForMermaid(labelText) {
-      if (!labelText) return "";
-      
-      // Check if label contains special characters that require quoting
-      const needsQuotes = /[()[\]{}<>|&!@#$%^*+=~`"']/.test(labelText);
-      
-      if (needsQuotes) {
-        // Escape any existing double quotes and wrap in double quotes
-        return `"${labelText.replace(/"/g, '\\"')}"`;
-      }
-      
-      return labelText;
-    }
-    
-    // Build edge text with proper label escaping
-    const escapedLabel = escapeLabelForMermaid(label);
-    const labelPart = escapedLabel ? `|${escapedLabel}|` : "";
+        
+        const labelPart = label ? `|"${label}"|` : "";
     const edgeText = `${sourceNode.mermaidId} -->${labelPart} ${targetNode.mermaidId}`;
     
-    // Determine edge type: inside subgraph, between subgraphs, or normal edge
-    const sourceCluster = nodeClusterMap[sourceNode.mermaidId];
-    const targetCluster = nodeClusterMap[targetNode.mermaidId];
+        // Find Lowest Common Ancestor
+        const sourceAncestors = [parentMap[sourceNode.svgId]];
+        while (sourceAncestors[sourceAncestors.length - 1]) {
+            sourceAncestors.push(parentMap[sourceAncestors[sourceAncestors.length - 1]]);
+        }
+        let lca = parentMap[targetNode.svgId];
+        while (lca && !sourceAncestors.includes(lca)) {
+            lca = parentMap[lca];
+        }
+        
+        edges.push({ text: edgeText, parentId: lca || 'root' });
+    });
     
-    if (sourceCluster && targetCluster && sourceCluster === targetCluster) {
-      // Edge inside subgraph
-      if (!innerClusterEdges[sourceCluster]) {
-        innerClusterEdges[sourceCluster] = [];
-      }
-      innerClusterEdges[sourceCluster].push(`    ${edgeText}`);
-      
-      // Also save edge to the corresponding subgraph's edges set
-      if (clusters[sourceCluster]) {
-        clusters[sourceCluster].edges.push(`    ${edgeText}`);
-      }
-    } else if (sourceCluster || targetCluster) {
-      // Edge between subgraphs or between subgraph and external node
-      interClusterEdges.push(`    ${edgeText}`);
-    } else {
-      // Normal edge (not in any subgraph)
-      normalEdges.push(`    ${edgeText}`);
-    }
-  });
-  
-  // Build Mermaid output
-  
-  // 1. Output all node definitions first
-  const definedNodeMermaidIds = new Set();
+    // 5. Generate Mermaid output
+    const definedNodeMermaidIds = new Set();
   for (const svgId in nodes) {
     const node = nodes[svgId];
-    // Prevent defining the same mermaidId twice
-    if (!definedNodeMermaidIds.has(node.mermaidId)) {
+        if (!definedNodeMermaidIds.has(node.mermaidId)) {
       mermaidCode += `${node.mermaidId}["${node.text}"]\n`;
-      definedNodeMermaidIds.add(node.mermaidId);
+            definedNodeMermaidIds.add(node.mermaidId);
+        }
     }
-  }
-  
-  // 2. Output normal edges and edges between subgraphs
-  if (normalEdges.length > 0) {
-    mermaidCode += "\n" + normalEdges.join('\n') + '\n';
-  }
-  
-  if (interClusterEdges.length > 0) {
-    mermaidCode += "\n" + interClusterEdges.join('\n') + '\n';
-  }
-  
-  // 3. Output subgraph structure and its internal edges
-  for (const clusterMermaidId in clusters) {
-    const cluster = clusters[clusterMermaidId];
+    mermaidCode += '\n';
     
-    // Output even if subgraph has no nodes
-    mermaidCode += `subgraph ${clusterMermaidId} ["${cluster.title}"]\n`;
-    
-    // Output nodes in subgraph
-    for (const svgId of cluster.nodes) {
-      const node = nodes[svgId];
-      if (node) {
-        mermaidCode += `    ${node.mermaidId}\n`;
-      }
+    // Group children and edges by parent
+    const childrenMap = {};
+    const edgeMap = {};
+
+    for (const childId in parentMap) {
+        const parentId = parentMap[childId];
+        if (!childrenMap[parentId]) childrenMap[parentId] = [];
+        childrenMap[parentId].push(childId);
     }
     
-    // Output internal edges of subgraph
-    if (cluster.edges && cluster.edges.length > 0) {
-      mermaidCode += cluster.edges.join('\n') + '\n';
-    } else if (innerClusterEdges[clusterMermaidId]) {
-      mermaidCode += innerClusterEdges[clusterMermaidId].join('\n') + '\n';
-    }
+    edges.forEach(edge => {
+        const parentId = edge.parentId || 'root';
+        if (!edgeMap[parentId]) edgeMap[parentId] = [];
+        edgeMap[parentId].push(edge.text);
+    });
     
-    mermaidCode += "end\n\n";
-  }
+    // Add top-level edges
+    (edgeMap['root'] || []).forEach(edgeText => {
+        mermaidCode += `${edgeText}\n`;
+    });
+
+    function buildSubgraphOutput(clusterId) {
+        const cluster = clusters[clusterId];
+        if (!cluster) return;
+
+        mermaidCode += `\nsubgraph ${cluster.mermaidId} ["${cluster.title}"]\n`;
+        
+        const childItems = childrenMap[clusterId] || [];
+        
+        // Render nodes within this subgraph
+        childItems.filter(id => nodes[id]).forEach(nodeId => {
+            mermaidCode += `    ${nodes[nodeId].mermaidId}\n`;
+        });
+        
+        // Render edges within this subgraph
+        (edgeMap[clusterId] || []).forEach(edgeText => {
+            mermaidCode += `    ${edgeText}\n`;
+        });
+        
+        // Render nested subgraphs
+        childItems.filter(id => clusters[id]).forEach(subClusterId => {
+            buildSubgraphOutput(subClusterId);
+        });
+        
+        mermaidCode += "end\n";
+    }
+
+    const topLevelClusters = Object.keys(clusters).filter(id => !parentMap[id]);
+    topLevelClusters.forEach(buildSubgraphOutput);
   
   if (Object.keys(nodes).length === 0 && Object.keys(clusters).length === 0) return null;
-  console.log("Flowchart conversion completed. Total nodes:", Object.keys(nodes).length, "Total clusters:", Object.keys(clusters).length); // DEBUG
-  console.log("Generated mermaid code:", mermaidCode.substring(0, 200) + "..."); // DEBUG
   return '```mermaid\n' + mermaidCode.trim() + '\n```';
 }
 
@@ -878,7 +687,7 @@ function convertClassDiagramSvgToMermaidText(svgElement) {
   const labelElements = Array.from(svgElement.querySelectorAll('g.edgeLabels .edgeLabel foreignObject p'));
 
   pathElements.forEach((path, index) => {
-    const id = path.getAttribute('id');
+    const id = path.getAttribute('id'); 
     if (!id || !id.startsWith('id_')) return;
 
     // Remove 'id_' prefix and trailing number (e.g., '_1')
