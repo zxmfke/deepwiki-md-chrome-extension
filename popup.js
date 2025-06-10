@@ -137,10 +137,24 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Navigate to page
         await chrome.tabs.update(tabId, { url: page.url });
-        
-        // Wait for page to load
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Increase waiting time to ensure page loads
-        
+
+        // Wait for page to load using webNavigation API
+        await new Promise((resolve, reject) => {
+          const onCompleted = (details) => {
+            if (details.tabId === tabId && details.url === page.url) {
+              chrome.webNavigation.onCompleted.removeListener(onCompleted);
+              resolve();
+            }
+          };
+          chrome.webNavigation.onCompleted.addListener(onCompleted);
+
+          // Set a timeout in case the page takes too long to load
+          const timeoutId = setTimeout(() => {
+            chrome.webNavigation.onCompleted.removeListener(onCompleted);
+            reject(new Error('Page took too long to load.'));
+          }, 10000); // 10 seconds timeout
+        });
+
         // Check again if cancelled during wait
         if (isCancelled) {
           showStatus(`Operation cancelled. Processed: ${processedCount}, Failed: ${errorCount}`, 'info');
