@@ -255,13 +255,13 @@ function navigateToPage(tabId, url) {
   });
 }
 
-async function processSinglePage(page) {
+async function processSinglePage(page, n) {
   if (batchState.cancelRequested) return;
 
   const currentStep = batchState.processed + batchState.failed + 1;
   batchState.currentTitle = page.title;
   broadcastBatchUpdate('processing', {
-    message: `Processing ${currentStep}/${batchState.total}: ${page.title}`
+    message: `Processing ${currentStep}/${batchState.total}: ${n}. ${page.title}`
   });
 
   await navigateToPage(batchState.tabId, page.url);
@@ -272,7 +272,7 @@ async function processSinglePage(page) {
     throw new Error(convertResponse?.error || 'Conversion failed');
   }
 
-  const fileName = getUniqueFileName(convertResponse.markdownTitle || page.title);
+  const fileName = `${n}.` + getUniqueFileName(convertResponse.markdownTitle || page.title);
   batchState.convertedPages.push({ title: fileName, content: convertResponse.markdown });
   batchState.processed += 1;
   broadcastBatchUpdate('pageProcessed', {
@@ -316,13 +316,14 @@ async function createZipArchive() {
 
 async function runBatchProcessing() {
   try {
+    let n = 0;
     for (const page of batchState.pages) {
       if (batchState.cancelRequested) {
         break;
       }
 
       try {
-        await processSinglePage(page);
+        await processSinglePage(page, n);
       } catch (error) {
         batchState.failed += 1;
         broadcastBatchUpdate('pageFailed', {
@@ -330,6 +331,7 @@ async function runBatchProcessing() {
           level: 'error'
         });
       }
+      n++;
     }
 
     if (batchState.cancelRequested) {
