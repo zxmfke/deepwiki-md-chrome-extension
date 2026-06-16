@@ -69,6 +69,14 @@ button.batch:hover {
   background-color: #0b7dda;
 }
 
+#batchSingleFileBtn {
+  background-color: #ff9800;
+}
+
+#batchSingleFileBtn:hover {
+  background-color: #fb8c00;
+}
+
 button.cancel {
   background-color: #f44336;
   margin-top: 5px;
@@ -98,4 +106,129 @@ button.cancel:hover {
 .info {
   background-color: #d9edf7;
   color: #31708f;
-} 
+}
+
+.batch-history {
+  margin-top: 12px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 8px;
+}
+
+.batch-history-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: #333;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.batch-history-toggle:hover {
+  background: none;
+  color: #0366d6;
+}
+
+.batch-history-toggle-icon {
+  font-size: 10px;
+  color: #666;
+}
+
+.batch-history-panel {
+  margin-top: 6px;
+}
+
+.batch-history-panel.collapsed {
+  display: none;
+}
+
+.batch-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.batch-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+}
+
+.batch-history-item:last-child {
+  border-bottom: none;
+}
+
+.batch-history-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.batch-history-label {
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-history-details {
+  color: #666;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.batch-history-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+button.batch-history-download {
+  padding: 4px 8px;
+  font-size: 11px;
+  background-color: #607d8b;
+}
+
+button.batch-history-download:hover {
+  background-color: #546e7a;
+}
+
+button.batch-history-remove {
+  padding: 4px 7px;
+  font-size: 11px;
+  background-color: #9e9e9e;
+  line-height: 1;
+}
+
+button.batch-history-remove:hover {
+  background-color: #757575;
+}
+
+button.batch-history-clear {
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background-color: #9e9e9e;
+  width: 100%;
+}
+
+button.batch-history-clear:hover {
+  background-color: #757575;
+}
+
+.batch-history-empty {
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+  padding: 8px 0;
+}

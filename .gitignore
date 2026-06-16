@@ -1,0 +1,18 @@
+# Build artifacts
+*.zip
+temp_build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node modules (if ever needed)
+node_modules/
+
+# Logs
+*.log

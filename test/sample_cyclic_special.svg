@@ -1,0 +1,26 @@
+<svg class="flowchart" aria-roledescription="flowchart-v2" viewBox="0 0 600 800">
+  <g class="root">
+    <g class="edgePaths">
+      <path d="M0,0L100,0" id="SeatMapHandlers-cyclic-special-1" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link"></path>
+      <path d="M0,0L100,0" id="SeatMapHandlers-cyclic-special-mid" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link"></path>
+      <path d="M0,0L100,0" id="SeatMapHandlers-cyclic-special-2" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" marker-end="url(#x)"></path>
+      <path d="M0,0L100,0" id="L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" marker-end="url(#x)"></path>
+      <path d="M0,0L100,0" id="L_B_C_0" class="edge-thickness-normal edge-pattern-dotted edge-thickness-normal edge-pattern-solid flowchart-link" marker-end="url(#x)"></path>
+    </g>
+    <g class="edgeLabels">
+      <g class="edgeLabel"><g class="label" data-id="SeatMapHandlers-cyclic-special-1"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignObject></g></g>
+      <g class="edgeLabel" transform="translate(352, 1286)"><g class="label" data-id="SeatMapHandlers-cyclic-special-mid"><foreignObject width="164" height="48"><div xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"><p>auto-reset at 50 SOLD<br>ctx.objectSendClient</p></span></div></foreignObject></g></g>
+      <g class="edgeLabel"><g class="label" data-id="SeatMapHandlers-cyclic-special-2"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"></span></div></foreignObject></g></g>
+      <g class="edgeLabel"><g class="label" data-id="L_A_B_0"><foreignObject width="50" height="20"><div xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"><p>solid edge</p></span></div></foreignObject></g></g>
+      <g class="edgeLabel"><g class="label" data-id="L_B_C_0"><foreignObject width="50" height="20"><div xmlns="http://www.w3.org/1999/xhtml"><span class="edgeLabel"><p>dotted edge</p></span></div></foreignObject></g></g>
+    </g>
+    <g class="nodes">
+      <g class="node default" id="flowchart-SeatMapHandlers-8" transform="translate(632, 937)">
+        <g class="label"><foreignObject width="120" height="72"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>set(data)<br>resetAll()<br>get()</p></span></div></foreignObject></g>
+      </g>
+      <g class="node default" id="flowchart-A-0" transform="translate(100, 100)"><g class="label"><foreignObject width="50" height="20"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>A</p></span></div></foreignObject></g></g>
+      <g class="node default" id="flowchart-B-1" transform="translate(300, 100)"><g class="label"><foreignObject width="50" height="20"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>B</p></span></div></foreignObject></g></g>
+      <g class="node default" id="flowchart-C-2" transform="translate(500, 100)"><g class="label"><foreignObject width="50" height="20"><div xmlns="http://www.w3.org/1999/xhtml"><span class="nodeLabel"><p>C</p></span></div></foreignObject></g></g>
+    </g>
+  </g>
+</svg>

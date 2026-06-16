@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mermaid 轉換測試頁面</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #555;
+      margin-top: 30px;
+    }
+    .test-case {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .test-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .test-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #007bff;
+    }
+    .test-status {
+      padding: 5px 15px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .status-pending {
+      background: #ffc107;
+      color: #000;
+    }
+    .status-pass {
+      background: #28a745;
+      color: white;
+    }
+    .status-fail {
+      background: #dc3545;
+      color: white;
+    }
+    .svg-container {
+      border: 1px solid #e0e0e0;
+      padding: 10px;
+      margin: 10px 0;
+      background: #fafafa;
+      overflow-x: auto;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      border-left: 4px solid #007bff;
+    }
+    code {
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .instructions {
+      background: #e7f3ff;
+      border-left: 4px solid #007bff;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .instructions h3 {
+      margin-top: 0;
+      color: #007bff;
+    }
+    .instructions ol {
+      margin: 10px 0;
+      padding-left: 25px;
+    }
+    .instructions li {
+      margin: 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 DeepWiki to Markdown - Mermaid 轉換測試</h1>
+
+    <div class="instructions">
+      <h3>📖 測試說明</h3>
+      <p><strong style="color: #dc3545;">⚠️ 首次使用必須操作（重要！）：</strong></p>
+      <ol style="background: #fff3cd; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
+        <li><strong>啟用檔案存取權限</strong>：
+          <ol style="margin-top: 8px;">
+            <li>開啟 <code>chrome://extensions/</code></li>
+            <li>找到 "DeepWiki to Markdown" 擴充功能</li>
+            <li>點選 <strong>"詳細資料"</strong> 按鈕</li>
+            <li>向下捲動，找到 <strong>"允許存取檔案網址"</strong> 選項</li>
+            <li><strong>開啟</strong>這個選項 ✅</li>
+          </ol>
+        </li>
+        <li><strong>重新載入擴充功能</strong>：回到 <code>chrome://extensions/</code>，點選重新整理圖示 🔄</li>
+        <li>重新整理此測試頁面 (F5)</li>
+      </ol>
+      <p style="background: #e7f3ff; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+        <strong>💡 為什麼需要這樣做？</strong><br>
+        Chrome 的安全機制要求使用者明確授權擴充功能存取本機檔案（<code>file://</code> 協定）。
+        如果不啟用此權限，會看到錯誤：<code>Could not establish connection</code>
+      </p>
+      <p><strong>正常測試流程：</strong></p>
+      <ol>
+        <li>確保已在 Chrome 中載入 DeepWiki to Markdown 擴充功能</li>
+        <li>開啟此頁面後，點選擴充功能圖示</li>
+        <li>點選 "Download Current Page" 下載轉換後的 Markdown</li>
+        <li>開啟下載的 .md 檔案，查看 Mermaid 程式碼區塊</li>
+        <li>對比下方「期望輸出」，驗證轉換是否正確</li>
+      </ol>
+      <p><strong>或者：</strong></p>
+      <ol>
+        <li>開啟瀏覽器開發人員工具 (F12)</li>
+        <li>在 Console 中手動執行轉換函數</li>
+        <li>對比輸出結果</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- 測試案例 1：類別圖 -->
+  <div class="container">
+    <div class="test-case">
+      <div class="test-header">
+        <div class="test-title">測試 1：類別圖 (Class Diagram) - note for</div>
+        <div class="test-status status-pending">待測試</div>
+      </div>
+
+      <h3>輸入 (SVG)：</h3>
+      <div class="svg-container" id="test1-svg">
+        <!-- 這裡應該貼上 test_class_diagram.md 中的 SVG 程式碼 -->
+        <p style="color: #666; font-style: italic;">
+          請從 test_class_diagram.md 複製 SVG 程式碼到這裡<br>
+          或者直接開啟包含類別圖的 DeepWiki 頁面進行測試
+        </p>
+      </div>
+
+      <h3>期望輸出 (Mermaid)：</h3>
+      <pre><code>classDiagram
+    note for Presenter "Singleton exported as 'presenter'"
+    class IPresenter {
+        «interface»
+        +windowPresenter: IWindowPresenter
+        +sqlitePresenter: ISQLitePresenter
+        +llmproviderPresenter: ILlmProviderPresenter
+        +configPresenter: IConfigPresenter
+        +threadPresenter: IThreadPresenter
+        +devicePresenter: IDevicePresenter
+        +upgradePresenter: IUpgradePresenter
+        +shortcutPresenter: IShortcutPresenter
+        +filePresenter: IFilePresenter
+        +mcpPresenter: IMCPPresenter
+        +syncPresenter: ISyncPresenter
+        +deeplinkPresenter: IDeeplinkPresenter
+        +init()
+        +destroy()
+    }
+    class Presenter {
+        -windowPresenter: WindowPresenter
+        -sqlitePresenter: SQLitePresenter
+        -llmproviderPresenter: LLMProviderPresenter
+        -configPresenter: ConfigPresenter
+        -threadPresenter: ThreadPresenter
+        -mcpPresenter: McpPresenter
+        -upgradePresenter: UpgradePresenter
+        -shortcutPresenter: ShortcutPresenter
+        -filePresenter: FilePresenter
+        -syncPresenter: SyncPresenter
+        -deeplinkPresenter: DeeplinkPresenter
+        +setupEventBus()
+        +init()
+        +destroy()
+    }
+    IPresenter <|.. Presenter</code></pre>
+
+      <h3>驗證重點：</h3>
+      <ul>
+        <li>✓ 類別的 interface 註解是否保留</li>
+        <li>✓ 屬性和方法是否完整</li>
+        <li>✓ 繼承關係符號 <code>&lt;|..</code> 是否正確</li>
+        <li>✓ note for 註解是否正確關聯</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 測試案例 2：流程圖 -->
+  <div class="container">
+    <div class="test-case">
+      <div class="test-header">
+        <div class="test-title">測試 2：流程圖 (Flow Chart) - subgraph</div>
+        <div class="test-status status-pending">待測試</div>
+      </div>
+
+      <h3>輸入 (SVG)：</h3>
+      <div class="svg-container" id="test2-svg">
+        <p style="color: #666; font-style: italic;">
+          請從 test_flow_chart.md 複製 SVG 程式碼到這裡<br>
+          或者直接開啟包含流程圖的 DeepWiki 頁面進行測試
+        </p>
+      </div>
+
+      <h3>期望輸出 (Mermaid)：</h3>
+      <pre><code>flowchart TD
+    subGraph0["Application Layer"]
+    subGraph1["HTTP Client Layer"]
+    subGraph2["Network Services Layer"]
+    subGraph3["Hardware Driver Layer"]
+    subGraph4["Hardware Layer"]
+
+    main_py["main.py<br>User Application"]
+    examples["ASP.NET Examples<br>Form Authentication"]
+    requests_py["sma_esp32_w5500_requests<br>Session & Response Classes"]
+    dhcp_py["wiznet5k_dhcp<br>DHCP Client"]
+    dns_py["wiznet5k_dns<br>DNS Resolver"]
+    socket_py["wiznet5k_socket<br>BSD Socket Interface"]
+    wiznet5k_py["wiznet5k.WIZNET5K<br>Core W5500 Driver"]
+    spi["SPI Interface<br>GPIO 18,19,23"]
+    w5500["W5500 Chip<br>Ethernet Controller"]
+    ethernet["Ethernet Network"]
+
+    main_py --> requests_py
+    examples --> requests_py
+    requests_py --> socket_py
+    requests_py --> dhcp_py
+    requests_py --> dns_py
+    socket_py --> wiznet5k_py
+    dhcp_py --> wiznet5k_py
+    dns_py --> wiznet5k_py
+    wiznet5k_py --> spi
+    spi --> w5500
+    w5500 --> ethernet</code></pre>
+
+      <h3>驗證重點：</h3>
+      <ul>
+        <li>✓ subgraph 層級結構是否保留</li>
+        <li>✓ 節點之間的連接是否完整</li>
+        <li>✓ 節點標籤（包含換行）是否正確</li>
+        <li>✓ 箭頭方向是否正確</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 測試案例 3：時序圖 -->
+  <div class="container">
+    <div class="test-case">
+      <div class="test-header">
+        <div class="test-title">測試 3：時序圖 (Sequence Diagram) - note and self arrow</div>
+        <div class="test-status status-pending">待測試</div>
+      </div>
+
+      <h3>輸入 (SVG)：</h3>
+      <div class="svg-container" id="test3-svg">
+        <p style="color: #666; font-style: italic;">
+          請從 test_sequence_diagram.md 複製 SVG 程式碼到這裡<br>
+          或者直接開啟包含時序圖的 DeepWiki 頁面進行測試
+        </p>
+      </div>
+
+      <h3>期望輸出 (Mermaid)：</h3>
+      <pre><code>sequenceDiagram
+    participant "Main Process"
+    participant "Presenter"
+    participant "ConfigPresenter"
+    participant "WindowPresenter"
+    participant "LLMProviderPresenter"
+    participant "ThreadPresenter"
+    participant "EventBus"
+    participant "IPC Channel"
+    participant SQLite
+    participant Other
+
+    note over "IPC Channel",Other: "IPC Communication Setup"
+
+    "Main Process"-&gt;&gt;"Presenter": "Create Presenter"
+    "Presenter"-&gt;&gt;"ConfigPresenter": "Create ConfigPresenter"
+    "Presenter"-&gt;&gt;"WindowPresenter": "Create WindowPresenter(configPresenter)"
+    "Presenter"-&gt;&gt;"LLMProviderPresenter": "Create LLMProviderPresenter(configPresenter)"
+    "Presenter"-&gt;&gt;SQLite: "Create SQLitePresenter"
+    "Presenter"-&gt;&gt;"ThreadPresenter": "Create ThreadPresenter(sqlitePresenter, llmProviderPresenter, configPresenter)"
+    "Presenter"-&gt;&gt;Other: "Create other presenters"
+    "Presenter"-&gt;&gt;"EventBus": "setupEventBus()"
+    "WindowPresenter"--&gt;&gt;"EventBus": "emit WINDOW_EVENTS.READY_TO_SHOW"
+    "EventBus"--&gt;&gt;"Presenter": "handle WINDOW_EVENTS.READY_TO_SHOW"
+    "Presenter"-&gt;&gt;"Presenter": "init()"
+    "Presenter"-&gt;&gt;"LLMProviderPresenter": "setProviders(configPresenter.getProviders())"
+    "Presenter"-&gt;&gt;"Presenter": "syncCustomModels()"
+    "Main Process"-&gt;&gt;"IPC Channel": "Register ipcMain.handle('presenter:call')"</code></pre>
+
+      <h3>驗證重點：</h3>
+      <ul>
+        <li>✓ 參與者（participant）順序是否正確</li>
+        <li>✓ 訊息箭頭類型（-&gt;&gt;、--&gt;&gt;）是否正確</li>
+        <li>✓ 自呼叫箭頭是否識別</li>
+        <li>✓ note over 註解位置是否正確</li>
+        <li>✓ 訊息標籤是否完整</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>🔧 除錯工具</h2>
+    <p>開啟瀏覽器控制台 (F12)，可以看到詳細的轉換日誌（如果 DEBUG_MODE 已啟用）</p>
+    <button onclick="checkExtension()">檢查擴充功能是否已載入</button>
+    <button onclick="window.location.reload()">重新整理頁面</button>
+  </div>
+
+  <script>
+    function checkExtension() {
+      // 檢查擴充功能是否已注入腳本
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        alert('✅ Chrome 擴充功能 API 可用\n請點選擴充功能圖示進行測試');
+      } else {
+        alert('⚠️ 無法偵測到擴充功能\n請確保：\n1. 擴充功能已在 chrome://extensions/ 中載入\n2. 頁面已重新整理');
+      }
+    }
+
+    // 頁面載入完成後的提示
+    window.addEventListener('load', () => {
+      console.log('%c🧪 DeepWiki to Markdown 測試頁面已載入', 'color: #007bff; font-size: 16px; font-weight: bold;');
+      console.log('%c請點選擴充功能圖示開始測試', 'color: #28a745; font-size: 14px;');
+      console.log('%c或查看頁面中的詳細說明', 'color: #666; font-size: 12px;');
+    });
+  </script>
+</body>
+</html>

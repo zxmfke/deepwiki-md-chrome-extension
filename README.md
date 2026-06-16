@@ -1,61 +1,189 @@
-# DeepWiki Webpage Convert To Markdown Extension
+# DeepWiki to Markdown Extension
 
-[中文文档](./README.zh-CN.md)
+A Chrome extension to convert DeepWiki documentation pages to Markdown format for local editing and archiving.
 
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/giidpddkhhjaikgjkkfclfidbnekghde?label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/deepwiki-to-markdown/giidpddkhhjaikgjkkfclfidbnekghde)
 
-## Purpose
+[简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-TW.md)
 
-I want to save the code documentation from the GitHub repository of the DeepWiki website, so that I can modify it locally and then rewrite it into my own blog, even adding some of my own insights. It has not been published to the Google Play Store yet and is currently just a tool for personal use. If you want to use it, you can clone it or download it from the release section. Then, enable Chrome's developer mode, select the downloaded directory, and add it.
+## ☕ Support This Project
 
-For example, open ThinkInAIXYZ/go-mcp. The content is as follows:
+<a href="https://buymeacoffee.com/philipz" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-![](./images/deepwiki-github.png)
+## Overview
 
-The conversion to Markdown format is as follows:
-
-![](./images/deepwiki-markdown.png)
-
+This extension helps you save documentation from DeepWiki (https://deepwiki.com) as Markdown files. Perfect for:
+- Creating local backups of documentation
+- Offline reading and reference
+- Repurposing content for your own blog or notes
+- Preserving knowledge from GitHub repositories
 
 ## Features
 
-1. Convert single page content from DeepWiki website to Markdown format
-2. One-click batch conversion and download of all subpages of a document (packaged as a ZIP file)
-3. The UML diagrams in the document will also be saved.
+### 1. Single Page Download
+Convert and download the current DeepWiki page as a Markdown file.
 
-## How to Use
+### 2. Batch Download (ZIP Archive)
+Download all subpages of a documentation project as individual Markdown files, packaged in a ZIP archive with an auto-generated index.
 
-![](./images/UI.png)
+### 3. Single File Batch Download
+Merge all documentation pages into a single Markdown file for easy reading and sharing.
 
-1. Single Page Conversion:
-   - Open any page on DeepWiki, such as：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
-   - Click the extension icon
-   - Click the "Convert & Download Current Page" button
-   - The page will be converted and a download dialog will appear
+### 4. Batch download history
+After a batch ZIP or single-file run completes, the extension keeps the last few results locally so you can open the popup and download again if you dismissed the save dialog (no re-conversion).
 
-2. Batch Download All Pages:
-   - Open a DeepWiki page, such as：[ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
-   - Click the extension icon
-   - Click the "Batch Convert & Download All Pages" button
-   - The extension will automatically convert all page content and package them into a ZIP file for download
+### 5. Advanced Conversion
+- Preserves code blocks with syntax highlighting
+- Converts Mermaid diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams)
+- Maintains document structure and formatting
+- Handles tables, lists, and nested content
+- Extracts metadata (last indexed date)
 
-## Notes
+## Installation
 
-- During batch conversion, all pages will be visited sequentially, please be patient
-- All files will be packaged into a ZIP file named after the current page title
-- The ZIP file contains a "README.md" file listing links to all documents
+### Option 1: Install from Chrome Web Store (Recommended)
+
+1. Visit the [Chrome Web Store](https://chromewebstore.google.com/detail/deepwiki-to-markdown/giidpddkhhjaikgjkkfclfidbnekghde)
+2. Click "Add to Chrome"
+3. Verify installation - the DeepWiki icon should appear in your extensions toolbar
+
+### Option 2: Install from Source
+
+1. **Download the extension**
+   - Clone this repository: `git clone https://github.com/philipz/deepwiki-md-chrome-extension.git`
+   - Or download from the [Releases](https://github.com/philipz/deepwiki-md-chrome-extension/releases) page
+
+2. **Install in Chrome**
+   - Open Chrome and navigate to `chrome://extensions/`
+   - Enable "Developer mode" (toggle in top-right corner)
+   - Click "Load unpacked"
+   - Select the extension directory
+
+3. **Verify installation**
+   - The DeepWiki icon should appear in your extensions toolbar
+   - Visit any DeepWiki page to test
+
+## Usage
+
+![Extension UI](./images/UI.png)
+
+### Single Page Download
+
+1. Navigate to any DeepWiki documentation page
+   - Example: [ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
+2. Click the extension icon in your toolbar
+3. Click **"Download Current Page"**
+4. Choose where to save the Markdown file
+
+### Batch Download (ZIP)
+
+1. Open the main page of a DeepWiki documentation project
+   - Example: [ThinkInAIXYZ/go-mcp](https://deepwiki.com/ThinkInAIXYZ/go-mcp)
+2. Click the extension icon
+3. Click **"Download All Pages"**
+4. Wait for the conversion process to complete
+   - Progress is shown in the popup
+   - You can cancel anytime with the "Cancel" button
+5. Save the ZIP file when prompted
+
+**ZIP Contents:**
+- Individual Markdown files for each page
+- `README.md` with links to all documents
+- Organized folder structure
+
+### Single File Batch Download
+
+1. Open the main page of a DeepWiki documentation project
+2. Click the extension icon
+3. Click **"Download as one md file"**
+4. Wait for all pages to be processed
+5. Save the combined Markdown file
+
+**Perfect for:**
+- Creating a single-file knowledge base
+- Importing into note-taking apps
+- Sharing complete documentation easily
+
+## Example
+
+**Before (DeepWiki):**
+
+![DeepWiki Page](./images/deepwiki-github.png)
+
+**After (Markdown):**
+
+![Markdown Output](./images/deepwiki-markdown.png)
+
+## Technical Details
+
+- **Supported Sites:** https://deepwiki.com/*
+- **File Format:** Markdown (.md)
+- **Encoding:** UTF-8
+- **Batch Downloads:** ZIP archive with organized structure
+- **Diagram Support:** Mermaid syntax
+
+## Requirements
+
+- Google Chrome or Chromium-based browser (Edge, Brave, etc.)
+- Access to https://deepwiki.com
+
+## Troubleshooting
+
+**Extension not working:**
+- Ensure you're on a valid DeepWiki documentation page (must have at least 2 path segments: `/org/project`)
+- Check that the page has fully loaded before clicking convert
+- Try refreshing the page
+
+**Download fails:**
+- Check your browser's download settings
+- Ensure you have write permissions to the download folder
+- For large batch downloads, ensure sufficient disk space
+
+**Batch conversion stuck:**
+- Use the "Cancel" button to stop the process
+- Refresh the page and try again
+- Check browser console for error messages (F12 → Console)
 
 ## Roadmap
 
-Future planned features include:
+Future enhancements under consideration:
 
-- Automatic translation to other languages before conversion
-- Enhanced local storage options
-- Integration with cloud services:
-  - Google Drive
-  - Feishu/Lark Docs
-  - Microsoft OneDrive
-  - Notion
-  - And more...
+- [ ] Auto-translation to other languages before conversion
+- [ ] Enhanced local storage options
+- [ ] Cloud service integration:
+  - [ ] Google Drive
+  - [ ] Microsoft OneDrive
+  - [ ] Notion
+  - [ ] Feishu/Lark Docs
+- [ ] Custom conversion templates
+- [ ] Configuration options (diagram format, metadata inclusion, etc.)
+- [ ] Support for additional documentation platforms
 
-Feel free to contribute or suggest new features by creating an issue or pull request.
+## Contributing
 
+Contributions are welcome! Feel free to:
+- Report bugs via [Issues](https://github.com/philipz/deepwiki-md-chrome-extension/issues)
+- Suggest features via [Issues](https://github.com/philipz/deepwiki-md-chrome-extension/issues)
+- Submit pull requests
+
+## Privacy
+
+Conversions run locally in your browser. Completed batch downloads may be kept briefly in local IndexedDB so you can re-download them from the popup (see [Privacy Policy](PRIVACY_POLICY.md)).
+
+For complete details, see our [Privacy Policy](PRIVACY_POLICY.md).
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+## Acknowledgments
+
+- Built for the [DeepWiki](https://deepwiki.com) platform
+- Uses [JSZip](https://stuk.github.io/jszip/) for ZIP file creation
+- Inspired by the need to preserve and repurpose technical documentation
+
+---
+
+**Version:** See [CHANGELOG.md](CHANGELOG.md) (current: 0.3.0)
+**Maintainer:** [@philipz](https://github.com/philipz)
+**Repository:** https://github.com/philipz/deepwiki-md-chrome-extension
